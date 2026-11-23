@@ -1,0 +1,6 @@
+com.aura.oobe.lenovo
+android.autoinstalls.config.Lenovo.tablet
+com.tblenovo.lenovowhatsnew
+com.lenovo.screensaver
+com.zui.camera.qr
+com.zui.recorder

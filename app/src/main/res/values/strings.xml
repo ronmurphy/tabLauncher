@@ -1,0 +1,8 @@
+<resources>
+    <string name="app_name">TabDesk</string>
+    <string name="dots_service">TabDesk notification dots</string>
+    <string name="awake_tile">Keep awake</string>
+    <string name="lock_service">TabDesk screen lock</string>
+    <string name="lock_service_summary">Double-tap the desktop to lock the screen</string>
+    <string name="lock_service_desc">Lets you lock the screen by double-tapping an empty part of the TabDesk desktop. TabDesk only uses this to lock the screen; it doesn\'t read the screen, what you type, or anything else.</string>
+</resources>
