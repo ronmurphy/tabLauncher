@@ -37,10 +37,23 @@ Plain Kotlin + framework Views (no AndroidX, no Compose). The release APK is abo
 | Quick settings → Keep awake | tap / long-press | switch between your timeout and Never / open Customize on Screen & system; add it with Customize → Screen & system → Add tile |
 | Customize → Backup | Export / Import | save or restore the whole setup as one small file, e.g. in Google Drive; **Undo import** puts back what you had |
 
+### With a mouse or trackball
+
+- **Right-click** does what a long-press does, straight away: app, folder, widget and desktop menus,
+  Customize from the Start button, battery usage from the battery, the menu on a saved icon theme.
+- **Middle-click** (press the wheel) on an app, on the desktop, taskbar, in Start or a folder, opens it in a
+  floating window.
+- **Click and drag** moves desktop icons, taskbar buttons, Start entries and folder apps without
+  holding still first. Widgets still need a hold, so dragging inside one scrolls or slides its own content.
+  In Start, scroll with the wheel: dragging an entry picks it up.
+- The **pointer lights up** what it rests on; taskbar buttons show the app's name after a moment.
+- The **wheel** scrolls Start, Customize and folders; tilt it (or a sideways wheel) for the rows of choices.
+- A mouse's back button works as Back.
+
 Portrait and landscape keep separate desktop arrangements. Saved positions are anchors: changing
 icon size / grid density scales the layout for display without overwriting it, so changing back restores it.
 
-Customize (long-press Start) is split into tabs: down the left on a tablet in landscape, across the
+Customize (long-press or right-click Start) is split into tabs: down the left on a tablet in landscape, across the
 top in portrait or on a phone. It reopens on the tab you last used, and stays open (re-laid out) when
 the tablet is rotated:
 
@@ -172,7 +185,7 @@ adb shell cmd package set-home-activity com.zui.launcher/.drawer.DrawerLauncher
 - `Services.kt`: notification-dot listener, double-tap-to-lock accessibility helper, "Add to Home screen" shortcut handler
 - `Ui.kt`: palette, drawn line icons, icon view, gesture helper, drag shadows, battery view
 
-`customize/`: the Customize panel (long-press Start)
+`customize/`: the Customize panel (long-press or right-click Start)
 
 - `Customize.kt`: the panel itself (tabs down the side or across the top, remembering tab and scroll) and the shared rows (sections, notes, sliders, switches)
 - `LookPage.kt`, `IconsPage.kt`, `DesktopPage.kt`, `TaskbarPage.kt`, `SystemPage.kt`, `BackupPage.kt`: one file per tab

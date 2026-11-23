@@ -60,6 +60,7 @@ private fun HomeActivity.folderTile(folder: DesktopItem, app: AppInfo, from: Vie
     }, llp(MATCH, WRAP))
     t.setOnTouchListener(PressHelper(t,
         onTap = { overlays.dismiss(layer()); launch(app, icon) },
+        onMiddle = { overlays.dismiss(layer()); launchInWindow(app, icon) },
         onLong = { v, _, _ ->
             appMenu(app, v, extra = MenuEntry("Remove from folder", G.CLOSE) {
                 desktop.removeFromFolder(folder, app.key)

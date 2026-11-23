@@ -16,9 +16,12 @@ import android.graphics.RectF
 import android.graphics.Typeface
 import android.graphics.drawable.Drawable
 import android.graphics.drawable.GradientDrawable
+import android.graphics.drawable.LayerDrawable
 import android.graphics.drawable.RippleDrawable
+import android.graphics.drawable.StateListDrawable
 import android.text.TextPaint
 import android.view.HapticFeedbackConstants
+import android.view.InputDevice
 import android.view.MotionEvent
 import android.view.View
 import android.view.ViewConfiguration
@@ -57,13 +60,24 @@ fun rounded(color: Int, radius: Float, strokeW: Int = 0, strokeColor: Int = 0) =
 
 fun oval(color: Int) = GradientDrawable().apply { shape = GradientDrawable.OVAL; setColor(color) }
 
-/** Ripple with a rounded mask; [fill] is the resting background (transparent by default). */
-fun rippleBg(ripple: Int, radius: Float, fill: Int = Color.TRANSPARENT): Drawable =
-    RippleDrawable(
-        ColorStateList.valueOf(ripple),
-        if (fill != Color.TRANSPARENT) rounded(fill, radius) else null,
-        rounded(Color.WHITE, radius),
-    )
+/**
+ * Ripple with a rounded mask; [fill] is the resting background (transparent by default).
+ * Under a mouse pointer it shows a soft wash in the ripple colour: the ripple's own hover tint is too faint to see.
+ */
+fun rippleBg(ripple: Int, radius: Float, fill: Int = Color.TRANSPARENT): Drawable {
+    val wash = Color.argb(Color.alpha(ripple) * 3 / 4, Color.red(ripple), Color.green(ripple), Color.blue(ripple))
+    val content = StateListDrawable().apply {
+        addState(intArrayOf(android.R.attr.state_hovered), LayerDrawable(arrayOf(rounded(fill, radius), rounded(wash, radius))))
+        addState(intArrayOf(), rounded(fill, radius))
+    }
+    return RippleDrawable(ColorStateList.valueOf(ripple), content, rounded(Color.WHITE, radius))
+}
+
+/** Long-press, or a right-click with a mouse: [action], usually the view's menu. For views that use plain clicks. */
+fun View.onMenu(action: (View) -> Unit) {
+    setOnLongClickListener { action(it); true }
+    setOnContextClickListener { action(it); true }
+}
 
 fun mix(a: Int, b: Int, t: Float): Int {
     fun ch(x: Int, y: Int) = (x + (y - x) * t).toInt().coerceIn(0, 255)
@@ -309,13 +323,38 @@ class PressHelper(
     var onTap: ((View) -> Unit)? = null,
     var onLong: ((View, Float, Float) -> Unit)? = null,
     var onDrag: ((View, Float, Float) -> Unit)? = null,
+    /** With a mouse, moving with the button down drags at once, without holding still first. Off for widgets, so
+     *  dragging inside one still scrolls or slides its own content. */
+    private val mouseDrag: Boolean = true,
+    /** Middle-click (the wheel pressed): the other way to open, e.g. in a floating window. None: it does nothing. */
+    var onMiddle: ((View) -> Unit)? = null,
 ) : View.OnTouchListener {
+    companion object {
+        /** A mouse right-click, or a pen's side button: the gesture that opens a menu straight away. */
+        fun isMenuClick(e: MotionEvent) =
+            e.isButtonPressed(MotionEvent.BUTTON_SECONDARY) || e.isButtonPressed(MotionEvent.BUTTON_STYLUS_PRIMARY)
+        fun isMiddleClick(e: MotionEvent) = e.isButtonPressed(MotionEvent.BUTTON_TERTIARY)
+    }
+
     private val slop = ViewConfiguration.get(view.context).scaledTouchSlop.toFloat()
     var downX = 0f; private set
     var downY = 0f; private set
     var longPressed = false; private set
     private var tracking = false
     private var dragging = false
+    private var mouse = false
+    private var middle = false
+
+    init {
+        // These views take touches themselves, so Android doesn't mark them hovered: do it, for rippleBg's highlight.
+        view.setOnHoverListener { v, e ->
+            if (e.isFromSource(InputDevice.SOURCE_MOUSE)) when (e.actionMasked) {
+                MotionEvent.ACTION_HOVER_ENTER -> v.isHovered = true
+                MotionEvent.ACTION_HOVER_EXIT -> v.isHovered = false
+            }
+            false
+        }
+    }
 
     private val longRunnable = Runnable {
         if (!tracking) return@Runnable
@@ -335,7 +374,23 @@ class PressHelper(
             MotionEvent.ACTION_DOWN -> {
                 cancelTimers()
                 downX = e.x; downY = e.y
+                if (isMenuClick(e)) {
+                    // Right-click: the long-press menu now. Marked long-pressed so the release isn't a tap.
+                    tracking = false; longPressed = true; dragging = false
+                    onLong?.invoke(view, downX, downY)
+                    return true
+                }
+                middle = isMiddleClick(e)
+                if (middle) {
+                    // Middle-click: fires on release like a click, and moving away cancels it; no menu, no drag.
+                    tracking = onMiddle != null; longPressed = false; dragging = false; mouse = false
+                    if (tracking) view.postDelayed(pressRunnable, ViewConfiguration.getTapTimeout().toLong())
+                    return true
+                }
                 tracking = true; longPressed = false; dragging = false
+                mouse = e.isFromSource(InputDevice.SOURCE_MOUSE) && mouseDrag && onDrag != null
+                // A list around the view would take the mouse's drag as a scroll; the wheel scrolls instead.
+                if (mouse) view.parent?.requestDisallowInterceptTouchEvent(true)
                 view.drawableHotspotChanged(e.x, e.y)
                 view.postDelayed(pressRunnable, ViewConfiguration.getTapTimeout().toLong())
                 if (onLong != null || onDrag != null)
@@ -345,6 +400,12 @@ class PressHelper(
             MotionEvent.ACTION_MOVE -> {
                 if (!tracking) return false
                 val moved = abs(e.x - downX) > slop || abs(e.y - downY) > slop
+                if (moved && !longPressed && mouse) {
+                    cancelTimers(); longPressed = true; dragging = true
+                    view.isPressed = false
+                    onDrag?.invoke(view, downX, downY)
+                    return true
+                }
                 if (moved && !longPressed) { stop(); return false }
                 if (moved && longPressed && !dragging && onDrag != null) {
                     dragging = true
@@ -358,7 +419,7 @@ class PressHelper(
                 if (tap) {
                     view.isPressed = true
                     view.postDelayed(unpress, 90)
-                    onTap?.invoke(view)
+                    if (middle) onMiddle?.invoke(view) else onTap?.invoke(view)
                 }
                 return true
             }

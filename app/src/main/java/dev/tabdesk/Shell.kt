@@ -76,7 +76,7 @@ class Taskbar(private val act: HomeActivity) : LinearLayout(act) {
             contentDescription = "Start"
             addView(ImageView(act).apply { setImageDrawable(Glyph(G.START, pal.accent)) }, flp(s(28), s(28), Gravity.CENTER))
             setOnClickListener { act.toggleStart() }
-            setOnLongClickListener { act.showSettings(); true }
+            onMenu { act.showSettings() }
         }
         addView(startBtn, llp(s(48), s(46)))
         addView(View(act).apply { setBackgroundColor(pal.divider) }, llp(1, s(26)).apply { setMargins(dp(8), 0, dp(6), 0) })
@@ -92,9 +92,9 @@ class Taskbar(private val act: HomeActivity) : LinearLayout(act) {
 
         battery.setPadding(dp(8), 0, dp(8), 0)
         battery.background = rippleBg(pal.ripple, dpf(12))
-        // Tap: Android's own notification / quick-settings panel. Long-press: battery usage.
+        // Tap: Android's own notification / quick-settings panel. Long-press or right-click: battery usage.
         battery.setOnClickListener { act.openShade() }
-        battery.setOnLongClickListener { act.safeStart(Intent(Intent.ACTION_POWER_USAGE_SUMMARY)); true }
+        battery.onMenu { act.safeStart(Intent(Intent.ACTION_POWER_USAGE_SUMMARY)) }
         addView(battery, llp(WRAP, s(44)))
 
         val clock = linear(act, true) {
@@ -159,11 +159,13 @@ class Taskbar(private val act: HomeActivity) : LinearLayout(act) {
         val f = FrameLayout(act)
         f.tag = app.key
         f.contentDescription = app.label
+        f.tooltipText = app.label   // shown when a mouse pointer rests on it
         f.background = rippleBg(pal.ripple, dpf(12))
         val icon = IconView(act).apply { bitmap = app.icon; dotColor = pal.accent; dotRing = pal.surfaceSolid; dot = Badges.has(app.pkg) }
         f.addView(icon, flp(s(34), s(34), Gravity.CENTER))
         f.setOnTouchListener(PressHelper(f,
             onTap = { act.launch(app, icon) },
+            onMiddle = { act.launchInWindow(app, icon) },
             onLong = { v, _, _ ->
                 act.appMenu(app, v, extra = if (!recent) null else MenuEntry("Remove from taskbar", G.CLOSE) {
                     Recents.remove(app.pkg); bindRecents()
@@ -579,6 +581,7 @@ class StartMenu(private val act: HomeActivity) : LinearLayout(act) {
         row.tag = h
         row.setOnTouchListener(PressHelper(row,
             onTap = { h.row?.let { activate(it, icon) } },
+            onMiddle = { h.row?.let { r -> if (r is Row.A) act.launchInWindow(r.app, icon) else activate(r, icon) } },
             onLong = { v, _, _ ->
                 (h.row as? Row.A)?.let { r ->
                     act.appMenu(r.app, v, inStart = true, extra = if (!r.added) null else MenuEntry("Remove from Recently added", G.CLOSE) {

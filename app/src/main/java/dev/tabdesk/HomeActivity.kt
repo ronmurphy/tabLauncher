@@ -318,6 +318,9 @@ class HomeActivity : Activity() {
         if (startMenu.isOpen) main.postDelayed({ closeStart(false) }, 300)
     }
 
+    /** Middle-click on an app: a floating window where the tablet has them, otherwise a normal launch. */
+    fun launchInWindow(app: AppInfo, from: View?) = if (canFloat) launchFloating(app) else launch(app, from)
+
     val canFloat: Boolean by lazy { packageManager.hasSystemFeature(android.content.pm.PackageManager.FEATURE_FREEFORM_WINDOW_MANAGEMENT) }
 
     /** Open [app] in a floating (freeform) window, centred and sized for the current orientation. */

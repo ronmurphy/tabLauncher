@@ -12,7 +12,7 @@ import android.widget.Switch
 import android.widget.TextView
 import dev.tabdesk.*
 
-/** Customize: the panel of tabs (long-press Start). Each tab is built by a Page extension in its own file. */
+/** Customize: the panel of tabs (long-press or right-click Start). Each tab is built by a Page extension in its own file. */
 object Customize {
     const val LOOK = 0; const val ICONS = 1; const val DESKTOP = 2; const val TASKBAR = 3; const val SYSTEM = 4; const val BACKUP = 5
 
@@ -47,7 +47,7 @@ object Customize {
         val body = linear(act, true) { setPadding(act.dp(if (wide) 10 else 2), act.dp(4), act.dp(6), act.dp(18)) }
         val scroll = ScrollView(act).apply { isVerticalScrollBarEnabled = false; addView(body) }
         val tabViews = ArrayList<View>()
-        val footer = "TabDesk ${BuildInfo.version(act)} · long-press Start to open this panel"
+        val footer = "TabDesk ${BuildInfo.version(act)} · long-press or right-click Start to open this panel"
 
         fun style(v: View, i: Int) {
             val on = i == lastTab

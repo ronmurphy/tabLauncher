@@ -93,7 +93,8 @@ class DesktopLayout(private val act: HomeActivity) : ViewGroup(act) {
             DesktopItem.WIDGET -> act.widgets.createView(item)?.also { w ->
                 w.press = PressHelper(w,
                     onLong = { v, _, _ -> act.widgetMenu(item, v) },
-                    onDrag = { v, x, y -> startDrag(item, v, x, y) })
+                    onDrag = { v, x, y -> startDrag(item, v, x, y) },
+                    mouseDrag = false)
             } ?: return
             else -> return
         }
@@ -215,7 +216,8 @@ class DesktopLayout(private val act: HomeActivity) : ViewGroup(act) {
                         else -> act.shortcutMenu(item, v)
                     }
                 },
-                onDrag = { v, x, y -> startDrag(item, v, x, y) }))
+                onDrag = { v, x, y -> startDrag(item, v, x, y) },
+                onMiddle = { if (item.type == DesktopItem.APP) Apps.get(item.key)?.let { act.launchInWindow(it, icon) } else open() }))
         }
 
         val present get() = when (item.type) {
@@ -579,7 +581,11 @@ class DesktopLayout(private val act: HomeActivity) : ViewGroup(act) {
         }
         // On empty desktop: swipe up opens Start, swipe down pulls down Android's notification panel.
         when (e.actionMasked) {
-            MotionEvent.ACTION_DOWN -> { swipeY = e.y; tapX = e.x; tapY = e.y }
+            // Right- or middle-click: moving with the button held isn't a swipe.
+            MotionEvent.ACTION_DOWN -> {
+                swipeY = if (PressHelper.isMenuClick(e) || PressHelper.isMiddleClick(e)) -1f else e.y
+                tapX = e.x; tapY = e.y
+            }
             MotionEvent.ACTION_MOVE -> if (swipeY >= 0 && kotlin.math.abs(e.y - swipeY) > dp(70)) {
                 val up = e.y < swipeY
                 swipeY = -1f

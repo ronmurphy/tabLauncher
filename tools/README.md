@@ -13,6 +13,9 @@ Coordinates assume this tablet in landscape (1340×800 as adb sees it).
   It finds names by content description, so a theme that shares its name with a style or colour chip
   (e.g. Original, Synthwave) can hit the chip instead: check the screenshot.
 - `combo.sh <style> "<colour set>" out.png`: set an icon style and colour set, close, screenshot
+- `mouse.py "to X Y" "right" ... | adb shell uinput -`: a virtual mouse for a few seconds (hover, clicks,
+  drags, wheel), using Android's own `uinput` test tool; no root. Steps are listed at the top of the file.
+  Screenshots taken meanwhile show the pointer. Pointer scale is measured for this tablet's speed setting.
 - `sheet.py`, `sheet_fx.py`, `sheet_rows.py`: crop the option previews out of Customize screenshots
   into one comparison sheet (Python + Pillow; see the usage line at the top of each)
 

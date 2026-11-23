@@ -72,7 +72,7 @@ private fun Page.themes(base: Icons.Spec) {
                 text = t.describe(act); maxLines = 2; ellipsize = android.text.TextUtils.TruncateAt.END; setPadding(act.dp(2), act.dp(2), 0, 0)
             }, llp(MATCH, WRAP))
             setOnClickListener { if (!on) IconThemes.apply(act, t) }
-            setOnLongClickListener { v -> themeMenu(v, t); true }
+            onMenu { v -> themeMenu(v, t) }
         }
         row.addView(card, llp(act.dp(150), MATCH).apply { marginEnd = act.dp(8) })
         val spec = base.copy(style = t.style, colours = t.colours, pack = t.pack, effect = t.effect)
@@ -87,7 +87,7 @@ private fun Page.themes(base: Icons.Spec) {
     bar.addView(note(when {
         undo != null && active?.name == undo.first -> "Switched to “${undo.first}”."
         active == null -> "Your icons right now aren't saved as a theme."
-        else -> "Tap a theme to use it; long-press one to rename, share or delete it."
+        else -> "Tap a theme to use it; long-press or right-click one to rename, share or delete it."
     }), llp(0, WRAP, 1f))
     fun button(text: String, filled: Boolean, onClick: () -> Unit) =
         bar.addView(act.overlays.button(text, filled, onClick), llp(WRAP, act.dp(38)).apply { marginStart = act.dp(8) })
