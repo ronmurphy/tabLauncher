@@ -149,6 +149,7 @@ object G {
     const val PLUS = 16; const val START = 17; const val GLOBE = 18; const val CHECK = 19; const val GRID = 20
     const val HOME = 21; const val BELL = 22; const val WINDOW = 23; const val BOX = 24; const val BOX_ON = 25
     const val EQUALS = 26; const val FOLDER = 27; const val LOCK = 28; const val SAVE = 29; const val PALETTE = 30
+    const val PULSE = 31
 }
 
 class Glyph(private val kind: Int, color: Int) : Drawable() {
@@ -251,6 +252,7 @@ class Glyph(private val kind: Int, color: Int) : Drawable() {
                 c.drawPath(p, s)
                 c.drawCircle(7.8f, 11f, 1.4f, f); c.drawCircle(10.8f, 7.6f, 1.4f, f); c.drawCircle(15.4f, 8.2f, 1.4f, f)
             }
+            G.PULSE -> { poly(2.5f, 12.5f, 7f, 12.5f, 9.5f, 6f, 14f, 18.5f, 16.5f, 12.5f, 21.5f, 12.5f); c.drawPath(p, s) }
             G.EQUALS -> { c.line(6f, 9.5f, 18f, 9.5f); c.line(6f, 14.5f, 18f, 14.5f) }
             G.FOLDER -> {
                 poly(3f, 6.5f, 3f, 18.5f, 21f, 18.5f, 21f, 8.5f, 11.5f, 8.5f, 9.5f, 5.5f, 4f, 5.5f, close = true); c.drawPath(p, s)

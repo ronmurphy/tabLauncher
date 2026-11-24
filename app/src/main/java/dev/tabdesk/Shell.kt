@@ -1,5 +1,9 @@
 package dev.tabdesk
 
+import dev.tabdesk.customize.Customize
+import dev.tabdesk.helper.AdbKey
+import dev.tabdesk.helper.HelperClient
+
 import android.app.SearchManager
 import android.content.ClipData
 import android.content.ClipboardManager
@@ -33,7 +37,7 @@ import kotlin.math.min
 // ==================================================================== taskbar
 
 class Taskbar(private val act: HomeActivity) : LinearLayout(act) {
-    companion object { const val MAX_RECENTS = 5 }
+    companion object { const val MAX_RECENTS = 5; const val MAX_RUNNING = 12 }
 
     private val pal = act.pal
     private val scale = Prefs.taskbarDp / 56f
@@ -45,6 +49,7 @@ class Taskbar(private val act: HomeActivity) : LinearLayout(act) {
     private val recents = LinearLayout(act)
     private val strip = AppStrip()
     val battery = BatteryView(act, pal.text, pal.accent)
+    private val helperIcon = FrameLayout(act)
     private var dropIndex = -1
     private var draggingKey: String? = null
     private val paint = Paint(Paint.ANTI_ALIAS_FLAG)
@@ -114,6 +119,29 @@ class Taskbar(private val act: HomeActivity) : LinearLayout(act) {
             label(pal.textDim, 11.5f)
         }, llp(WRAP, WRAP))
         addView(clock, llp(WRAP, s(44)).apply { marginStart = dp(2) })
+
+        // The helper, once set up: lit while it's running, dim when it isn't. Tap: Customize → Helper.
+        helperIcon.apply {
+            background = rippleBg(pal.ripple, dpf(12))
+            addView(ImageView(act), flp(s(20), s(20), Gravity.CENTER))
+            setOnClickListener { act.showSettings(Customize.HELPER) }
+        }
+        addView(helperIcon, llp(s(34), s(44)))
+        bindHelper()
+    }
+
+    fun bindHelper() {
+        if (!AdbKey.exists(act)) { helperIcon.visibility = GONE; return }
+        helperIcon.visibility = VISIBLE
+        val on = HelperClient.connected
+        (helperIcon.getChildAt(0) as ImageView).setImageDrawable(Glyph(G.PULSE, if (on) pal.accent else pal.textDim))
+        val label = when {
+            on -> "Helper running: the taskbar shows running apps"
+            HelperClient.starting -> "Helper starting\u2026"
+            else -> "Helper not running" + (HelperClient.problem?.let { " ($it)" } ?: "") + ": the taskbar shows recent apps"
+        }
+        helperIcon.contentDescription = label
+        helperIcon.tooltipText = label
     }
 
     fun applyInsets(bars: Insets) {
@@ -135,16 +163,36 @@ class Taskbar(private val act: HomeActivity) : LinearLayout(act) {
         bindRecents()
     }
 
+    /** After the pins: the apps that are running, when the helper says so; otherwise recently used ones. */
     fun bindRecents() {
         recents.removeAllViews()
         val pinned = Prefs.pins.mapNotNull { Apps.get(it)?.pkg }.toSet()
-        Recents.shown().asSequence()
-            .filter { it !in pinned }
+        val running = HelperClient.connected
+        val list = if (running) HelperClient.tasks.asSequence().filter { it.running }.map { it.pkg }.distinct()
+            else Recents.shown().asSequence()
+        list.filter { it !in pinned }
             .mapNotNull { Apps.firstOf(it) }
-            .filter { !Prefs.isHidden(it.key) }
-            .take(MAX_RECENTS)
-            .forEach { recents.addView(appView(it, recent = true), llp(s(50), s(48))) }
+            .filter { running || !Prefs.isHidden(it.key) }
+            .take(if (running) MAX_RUNNING else MAX_RECENTS)
+            .forEach { recents.addView(appView(it, recent = !running), llp(s(50), s(48))) }
+        markRunning()
         strip.requestLayout()
+    }
+
+    /** A short line under each running app; longer, in the accent colour, for one showing in a window now. */
+    private fun markRunning() {
+        val tasks = HelperClient.tasks
+        for (group in listOf(pins, recents)) for (i in 0 until group.childCount) {
+            val f = group.getChildAt(i) as FrameLayout
+            val bar = f.findViewWithTag<View>("run") ?: continue
+            val pkg = Apps.get(f.tag as String)?.pkg
+            val mine = tasks.filter { it.pkg == pkg && it.running }
+            bar.visibility = if (mine.isEmpty()) View.GONE else View.VISIBLE
+            val visible = mine.any { it.visible }
+            bar.background = rounded(if (visible) pal.accent else pal.textDim, dpf(1.5f))
+            val w = if (visible) s(16) else s(6)
+            if (bar.layoutParams.width != w) { bar.layoutParams.width = w; bar.requestLayout() }
+        }
     }
 
     fun refreshDots() {
@@ -163,6 +211,8 @@ class Taskbar(private val act: HomeActivity) : LinearLayout(act) {
         f.background = rippleBg(pal.ripple, dpf(12))
         val icon = IconView(act).apply { bitmap = app.icon; dotColor = pal.accent; dotRing = pal.surfaceSolid; dot = Badges.has(app.pkg) }
         f.addView(icon, flp(s(34), s(34), Gravity.CENTER))
+        f.addView(View(act).apply { tag = "run"; visibility = View.GONE },
+            flp(s(6), dp(3), Gravity.BOTTOM or Gravity.CENTER_HORIZONTAL).apply { bottomMargin = s(1) })
         f.setOnTouchListener(PressHelper(f,
             onTap = { act.launch(app, icon) },
             onMiddle = { act.launchInWindow(app, icon) },

@@ -1,7 +1,7 @@
 # TabDesk
 
 A small desktop-style home screen for the Lenovo Tab One (TB305FU, Android 15).
-Plain Kotlin + framework Views (no AndroidX, no Compose). The release APK is about 147 KB, and it uses about 50 MB PSS at idle.
+Plain Kotlin + framework Views (no AndroidX, no Compose). The release APK is about 1 MB (mostly the bundled Material Symbols font), and it uses about 50 MB PSS at idle; the optional helper process about 50 MB more.
 
 ## Using it
 
@@ -13,7 +13,8 @@ Plain Kotlin + framework Views (no AndroidX, no Compose). The release APK is abo
 | Empty desktop | long-press | Add widget · Arrange icons · Wallpaper · Customize |
 | Any app (desktop, taskbar, Start) | tap | open |
 | | long-press | app shortcuts, **open in floating window**, **always open floating** (toggle: a normal tap then opens it floating), pin/unpin taskbar, add/remove desktop, rename, hide (Start), info, uninstall |
-| Recent app on the taskbar | long-press → Remove from taskbar | hidden until you next open that app |
+| Recent app on the taskbar (no helper) | long-press → Remove from taskbar | hidden until you next open that app |
+| Running app (taskbar, desktop, Start) | long-press → Close | closes it, as swiping it away in Recents does (needs the helper) |
 | "Recently added" app in Start | long-press → Remove from Recently added | dropped from that list for good |
 | | long-press **and keep moving** | drag: Start → desktop, Start/desktop → taskbar, reorder taskbar, move on desktop |
 | Widget | long-press | Resize (drag the dot) · Widget settings · Remove; long-press + move drags it |
@@ -25,6 +26,7 @@ Plain Kotlin + framework Views (no AndroidX, no Compose). The release APK is abo
 | Folder | tap / long-press | open it (tap the name to rename; drag an app out) / Rename · Ungroup · Remove from desktop |
 | Taskbar battery | tap / long-press | Android's notification + quick-settings panel / battery usage |
 | Taskbar clock | tap | calendar |
+| Taskbar pulse (after the clock) | tap | Customize → Helper; lit while the helper is running, dim when it isn't |
 | Customize → Icons → Your themes | tap / long-press | switch to a saved icon theme (Undo goes back) / rename, export to a file, delete; **Save as theme** and **Import** below |
 | Customize → Icons → Style | tap a style | Original, or redraw every app as Themed (accent colours), Watercolour, Inked, Minimal, Outline, Paper cut, Long shadow or Round badge |
 | Customize → Icons → Colours | tap a set | Accent, App colours, Auto (black or white to suit what's behind), White on black, Black on white, or a set: Sakura, Summer, Autumn, Winter, Ukiyo-e, Matcha, Indigo, Maple, Sepia, Riso, Chalkboard, Blueprint, Terminal, Synthwave, Gold |
@@ -64,9 +66,27 @@ the tablet is rotated:
 - **Screen & system**: screen timeout and the Keep awake tile, hiding Android's status bar on the
   desktop (one swipe from the top shows it, a second opens Lenovo's quick-settings panel),
   notification dots, default home app
+- **Helper**: setting up the running-apps helper, step by step, and whether it's running
 - **Backup**: export, import, undo import
 
 Start shows a "Recently added" section for apps installed in the last 14 days.
+
+**Running apps (the helper).** Android doesn't let an app see which other apps are running, but adb
+can. TabDesk pairs with the tablet's own wireless debugging, the way a computer would, and starts a
+small helper process through it. The helper tells TabDesk whenever apps open, move or close, and
+closes one when asked. With it, the taskbar shows the apps that are running (after the pins, which
+get the same mark): a short grey line under a running app, a longer one in the accent colour while
+it's on screen, e.g. in a floating window. Without it, the taskbar shows recently used apps instead.
+Customize → **Helper** sets it up in five steps that tick themselves off: Developer options, Wi-Fi,
+Wireless debugging, **Pair** (TabDesk opens Wireless debugging; tap "Pair device with pairing code"
+and type the code into TabDesk's notification, since the code has to stay on screen) and **Allow**.
+Allow has TabDesk grant itself, through adb, what otherwise needs a computer: switching wireless
+debugging on, recently used apps, binding widgets without a prompt, notification dots, and lifting
+Android's restricted-settings block on double-tap to lock. After a restart TabDesk switches wireless
+debugging on, starts the helper and switches it off again (the tile lights up for a few seconds).
+The helper keeps running while USB debugging is on, so TabDesk turns that on too; plugging into a
+computer still asks before that computer can use adb. Everything stays on the tablet: TabDesk only
+connects to 127.0.0.1.
 
 **Icon styles.** Themed, Watercolour, Inked and Minimal redraw every app the same way. Each app's
 drawing is, in order: one you picked (long-press → Change icon), the app's own one-colour icon
@@ -126,7 +146,8 @@ everything in its appfilter). If the pack is uninstalled, apps go back to their 
 it again brings it back (backups keep the pack's package name, not its icons).
 
 **Fonts** come from Google Play services' font provider (`com.google.android.gms.fonts`), the same
-one Android apps use for "downloadable fonts": no internet permission, API key or library in TabDesk.
+one Android apps use for "downloadable fonts": no API key or library in TabDesk, and TabDesk itself
+doesn't go online (its internet permission is only for talking to the tablet's own adb on 127.0.0.1).
 The chosen family (regular + a 600 weight, or synthetic bold) is copied to `files/font/` so it loads
 instantly and offline at startup. The list in `app/src/main/assets/fonts.txt` is Latin-script Google
 Fonts under 3 MB, most popular first, one per line as category letter (S sans, R serif, D display,
@@ -149,9 +170,10 @@ them. The setup from before the import is kept in `files/before-import.json` for
 ## Build & install
 
 ```sh
-./deploy.sh      # build (signed with the local debug key), install -r, and bring TabDesk back to the front
+./deploy.sh      # build (signed with TabDesk's release key), install -r, and bring TabDesk back to the front
 
-# one-time grants (avoid the bind-widget dialog and Android 15's "restricted setting" block)
+# one-time grants (avoid the bind-widget dialog and Android 15's "restricted setting" block);
+# Customize → Helper → Allow does these itself once TabDesk is paired
 adb shell appwidget grantbind --package dev.tabdesk --user 0
 adb shell cmd notification allow_listener dev.tabdesk/dev.tabdesk.DotsService
 adb shell appops set dev.tabdesk GET_USAGE_STATS allow      # recently used apps on the taskbar
@@ -159,6 +181,14 @@ adb shell appops set dev.tabdesk GET_USAGE_STATS allow      # recently used apps
 # make it the home app
 adb shell cmd package set-home-activity dev.tabdesk/.HomeActivity
 ```
+
+**Signing.** Release builds are signed with TabDesk's own key, `signing/tabdesk-release.jks`, its
+password in `signing/keystore.properties`. Both are kept out of git: **back them up**, because Android
+only installs an update signed with the same key. Without them, builds fall back to this computer's
+debug key. Copies installed before the release key existed were signed with the debug key;
+`signing/lineage.bin` (in git) is Android's proof that the debug key handed over to the release key
+(APK Signature Scheme v3 rotation), so those update in place and keep their setup. The build signs the
+APK again with it (`signReleaseWithLineage` in `app/build.gradle.kts`).
 
 ### Go back to the Lenovo launcher
 
@@ -188,7 +218,17 @@ adb shell cmd package set-home-activity com.zui.launcher/.drawer.DrawerLauncher
 `customize/`: the Customize panel (long-press or right-click Start)
 
 - `Customize.kt`: the panel itself (tabs down the side or across the top, remembering tab and scroll) and the shared rows (sections, notes, sliders, switches)
-- `LookPage.kt`, `IconsPage.kt`, `DesktopPage.kt`, `TaskbarPage.kt`, `SystemPage.kt`, `BackupPage.kt`: one file per tab
+- `LookPage.kt`, `IconsPage.kt`, `DesktopPage.kt`, `TaskbarPage.kt`, `SystemPage.kt`, `HelperPage.kt`, `BackupPage.kt`: one file per tab
+
+`helper/`: the running-apps helper
+
+- `AdbLink.kt`: a minimal adb client (TLS with TabDesk's key, then adb's messages, enough for shell commands), TabDesk's key, and finding the wireless-debugging port with network service discovery
+- `AdbPairing.kt`: pairing with a 6-digit code: TLS, SPAKE2 (BoringSSL's, in plain Kotlin) and the encrypted key exchange; making TabDesk's key and certificate
+- `Pairing.kt`: the pairing notification (watches for the pairing service, takes the code)
+- `Setup.kt`: the setup steps' state and buttons, and the grants behind Allow
+- `Adb.kt`: running commands through wireless debugging, switching it on for the moment if it's off
+- `Helper.kt`: the helper itself, run as the shell user with `app_process`: watches tasks, serves TabDesk on 127.0.0.1
+- `HelperClient.kt`: TabDesk's side: starts the helper (at startup, after a restart, when a new version is installed), stays connected, and passes on the running tasks
 
 `icons/`: everything about app icons
 
@@ -200,8 +240,31 @@ adb shell cmd package set-home-activity com.zui.launcher/.drawer.DrawerLauncher
 - `IconThemes.kt`: saved icon themes (starters, apply with undo, rename, delete, export / import)
 - `IconPacks.kt`: finding installed icon packs and reading them (appfilter, theming layers, drawable list, picker thumbnails)
 
-Outside the app: `tools/` has the adb test helpers, the font scripts and a test icon pack (see
+Outside the app: `tools/` has the adb test helpers, the font scripts, a test icon pack and a stand-in for
+the tablet's pairing service (see
 `tools/README.md`); `archive/` keeps local snapshots of the source from before big changes.
+
+## How the helper works
+
+- **Pairing** follows Android's adb (`packages/modules/adb`, `pairing_auth` and `pairing_connection`):
+  TLS 1.3 to the port that "Pair device with pairing code" advertises as `_adb-tls-pairing._tcp`, then
+  SPAKE2 over the code plus 64 bytes exported from the TLS session (label `adb-label\0`), then each side
+  sends its key encrypted with AES-128-GCM (HKDF-SHA256 of SPAKE2's result). TabDesk's RSA-2048 key is
+  sent as adb writes `adbkey.pub`, named "TabDesk", and kept in `no_backup/adb/` (not in backups).
+  `tools/pairing/fake_pair_server.py` plays the tablet's side for testing; the PC's `adb pair` pairs with it.
+- **Connecting**: TLS 1.3 with the same key to the port advertised as `_adb-tls-connect._tcp` (the one
+  whose address is this tablet's), then `CNXN` / `OPEN shell:` messages, as `adb shell` does.
+- **The helper** is TabDesk's own APK run by the shell user: `CLASSPATH=<apk> app_process /system/bin
+  dev.tabdesk.helper.Helper serve`, started with `setsid` so it outlives the adb command. It lists tasks
+  with `ActivityTaskManager.getRecentTasks` (`isRunning`, `isVisible`) and closes them with `removeTask`,
+  which the shell user may do. It registers for task changes (`registerTaskStackListener`, with a plain
+  Binder standing in for the hidden listener interface) and pushes the list to TabDesk over a socket on
+  127.0.0.1; the port and a random token are passed in environment variables, and a connection that
+  doesn't send the token first is dropped. It only takes `close <task>`, `ping` and `quit`.
+- **Lifetime**: the helper is in adb's process group, so it ends when adb does. adb runs while USB or
+  wireless debugging is on, so with USB debugging on, wireless debugging can be switched off again.
+  TabDesk replaces a helper left from an older version (it reports a build id), and if the helper
+  stops, tries again after 5 s, 30 s, 2 min, then every 10 min, or when Wi-Fi comes back.
 
 ## Floating windows
 

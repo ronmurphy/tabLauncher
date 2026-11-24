@@ -1,5 +1,7 @@
 package dev.tabdesk
 
+import dev.tabdesk.helper.HelperClient
+import dev.tabdesk.helper.Setup
 import dev.tabdesk.customize.Customize
 import dev.tabdesk.icons.*
 import android.app.Activity
@@ -47,6 +49,8 @@ class HomeActivity : Activity() {
 
     private val appsListener: () -> Unit = { onAppsChanged() }
     private val badgeListener: () -> Unit = { onBadgesChanged() }
+    private val setupListener: () -> Unit = { Customize.refreshIf(this, Customize.HELPER) }
+    private val tasksListener: () -> Unit = { taskbar.bindRecents(); taskbar.bindHelper() }
 
     private val batteryReceiver = object : BroadcastReceiver() {
         override fun onReceive(c: Context, i: Intent) {
@@ -88,6 +92,10 @@ class HomeActivity : Activity() {
         buildUi()
         Apps.listeners += appsListener
         Badges.listeners += badgeListener
+        Setup.onChange = setupListener
+        HelperClient.listeners += setupListener
+        HelperClient.listeners += tasksListener
+        if (Setup.ready(this)) HelperClient.ensure(this)
         Apps.load()
         onBackInvokedDispatcher.registerOnBackInvokedCallback(OnBackInvokedDispatcher.PRIORITY_DEFAULT) { handleBack() }
         WallpaperManager.getInstance(this).addOnColorsChangedListener(wallpaperListener, main)
@@ -105,6 +113,7 @@ class HomeActivity : Activity() {
         if (Prefs.desktopRev != desktopRev) { desktopRev = Prefs.desktopRev; desktop.reload() }
         ensureFont()
         Recents.refresh(this) { taskbar.bindRecents() }
+        Customize.refreshIf(this, Customize.HELPER)
     }
 
     override fun onPause() {
@@ -119,6 +128,9 @@ class HomeActivity : Activity() {
     }
 
     override fun onDestroy() {
+        if (Setup.onChange === setupListener) Setup.onChange = null
+        HelperClient.listeners -= setupListener
+        HelperClient.listeners -= tasksListener
         Apps.listeners -= appsListener
         Badges.listeners -= badgeListener
         WallpaperManager.getInstance(this).removeOnColorsChangedListener(wallpaperListener)
@@ -160,6 +172,11 @@ class HomeActivity : Activity() {
         if (Fonts.onResult(this, requestCode, resultCode, data)) return
         if (requestCode == ScreenTimeout.REQ_PERMISSION) { refreshSettings(); return }
         super.onActivityResult(requestCode, resultCode, data)
+    }
+
+    override fun onRequestPermissionsResult(requestCode: Int, permissions: Array<out String>, results: IntArray) {
+        if (requestCode == Setup.REQ_NOTIFY) Setup.onNotifyPermission(this, results.firstOrNull() == android.content.pm.PackageManager.PERMISSION_GRANTED)
+        else super.onRequestPermissionsResult(requestCode, permissions, results)
     }
 
     // ------------------------------------------------------------ UI
@@ -429,7 +446,7 @@ class HomeActivity : Activity() {
     /** Redraw Customize where it was scrolled to (e.g. after a permission or tile was granted). */
     fun refreshSettings() { overlays.dismissAll(); root.post { Customize.show(this, restoreScroll = true) } }
 
-    fun showSettings() { closeStart(false); Customize.show(this, restoreScroll = false) }
+    fun showSettings(tab: Int? = null) { closeStart(false); Customize.show(this, restoreScroll = false, tab = tab) }
 
     fun toast(s: String) = Toast.makeText(this, s, Toast.LENGTH_SHORT).show()
 
@@ -492,6 +509,14 @@ class HomeActivity : Activity() {
         }
         if (!app.system) e += MenuEntry("Uninstall", G.TRASH) {
             safeStart(Intent(Intent.ACTION_DELETE, Uri.fromParts("package", app.pkg, null)))
+        }
+        // Running (the helper knows): close it, as swiping it away in Recents does.
+        val tasks = HelperClient.tasks.filter { it.pkg == app.pkg }
+        if (tasks.any { it.running }) {
+            e += MenuEntry.DIVIDER
+            e += MenuEntry(if (tasks.size > 1) "Close ${tasks.size} windows" else "Close", G.CLOSE) {
+                tasks.forEach { HelperClient.close(it.id) }
+            }
         }
         overlays.menu(anchorOf(anchor), e, app.label)
     }

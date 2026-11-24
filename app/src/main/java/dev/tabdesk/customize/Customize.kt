@@ -14,7 +14,7 @@ import dev.tabdesk.*
 
 /** Customize: the panel of tabs (long-press or right-click Start). Each tab is built by a Page extension in its own file. */
 object Customize {
-    const val LOOK = 0; const val ICONS = 1; const val DESKTOP = 2; const val TASKBAR = 3; const val SYSTEM = 4; const val BACKUP = 5
+    const val LOOK = 0; const val ICONS = 1; const val DESKTOP = 2; const val TASKBAR = 3; const val SYSTEM = 4; const val HELPER = 5; const val BACKUP = 6
 
     private class Tab(val title: String, val glyph: Int, val build: Page.() -> Unit)
 
@@ -24,6 +24,7 @@ object Customize {
         Tab("Desktop", G.GRID) { desktop() },
         Tab("Taskbar & Start", G.START) { taskbarStart() },
         Tab("Screen & system", G.MONITOR) { system() },
+        Tab("Helper", G.WINDOW) { helper() },
         Tab("Backup", G.SAVE) { backup() },
     )
 
@@ -31,8 +32,13 @@ object Customize {
     private var lastTab = LOOK
     private var lastScroll = 0
     private var layer: Overlays.Layer? = null
+    /** Rebuilds the open tab where it is scrolled to. */
+    private var reselect: (() -> Unit)? = null
 
     fun isShowing(act: HomeActivity) = layer?.let { act.overlays.isOpen(it) } == true
+
+    /** Rebuilds [tab] if it's the one open, e.g. when coming back from Settings with something now done. */
+    fun refreshIf(act: HomeActivity, tab: Int) { if (isShowing(act) && lastTab == tab) reselect?.invoke() }
 
     /** Open Customize; [tab] picks a page, otherwise it opens where it was last. */
     fun show(act: HomeActivity, restoreScroll: Boolean, tab: Int? = null) {
@@ -63,7 +69,7 @@ object Customize {
             lastTab = i
             body.removeAllViews()
             TABS[i].build(Page(act, body))
-            if (!wide && i == BACKUP) body.addView(TextView(act).label(pal.textDim, 11.5f).apply {
+            if (!wide && i == TABS.lastIndex) body.addView(TextView(act).label(pal.textDim, 11.5f).apply {
                 text = footer; gravity = Gravity.CENTER; setPadding(0, act.dp(22), 0, 0)
             }, llp(MATCH, WRAP))
             tabViews.forEachIndexed { j, v -> style(v, j) }
@@ -114,6 +120,7 @@ object Customize {
         }
 
         select(lastTab, if (restoreScroll) lastScroll else 0)
+        reselect = { select(lastTab, lastScroll) }
         layer = act.overlays.show(card, dim = true)
     }
 

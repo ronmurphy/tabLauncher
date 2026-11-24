@@ -8,3 +8,7 @@ local.properties
 
 # Local snapshots kept outside git (git history covers this from the first commit on)
 archive/
+
+# TabDesk's release key and its password (signing/lineage.bin is public and stays in git)
+signing/*.jks
+signing/keystore.properties

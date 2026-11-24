@@ -30,6 +30,14 @@ variable font (Apache 2.0) using fontTools:
   is the one TabDesk bundles
 - `names.py <font.ttf> <font.codepoints> symbols.txt`: one line per glyph, its code point and names
 
+## pairing/: a stand-in for the tablet's pairing service
+
+`fake_pair_server.py [port] [code]` acts as "Pair device with pairing code" (TLS 1.3, SPAKE2, the
+encrypted key exchange) with its own SPAKE2 written to match BoringSSL's. `adb pair 127.0.0.1:<port>
+<code>` against it checks that SPAKE2 against adb's own; it prints the key it receives and exits.
+Needs pyOpenSSL (`python3 -m venv venv && venv/bin/pip install pyopenssl`). To point TabDesk at it,
+`adb reverse tcp:<port> tcp:<port>` makes it reachable on the tablet's 127.0.0.1.
+
 ## testpack/: a fake icon pack for testing icon pack support
 
 `testpack.apk` (package `dev.tabdesk.testpack`, shows as "Test Pack") has full-colour icons for a few

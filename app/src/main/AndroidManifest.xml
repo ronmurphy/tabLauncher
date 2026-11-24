@@ -14,6 +14,15 @@
     <!-- Screen timeout in Customize and the Keep awake tile ("Modify system settings", granted by the user). -->
     <uses-permission android:name="android.permission.WRITE_SETTINGS"
         tools:ignore="ProtectedPermissions" />
+    <!-- Running apps on the taskbar: TabDesk talks to the tablet's own wireless debugging (on 127.0.0.1). -->
+    <uses-permission android:name="android.permission.INTERNET" />
+    <!-- The helper's setup checks that Wi-Fi is connected (wireless debugging needs it). -->
+    <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
+    <!-- Pairing with wireless debugging: the code is typed into TabDesk's notification. -->
+    <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
+    <!-- Lets TabDesk switch wireless debugging on at startup. Only adb can grant it, which TabDesk does once paired. -->
+    <uses-permission android:name="android.permission.WRITE_SECURE_SETTINGS"
+        tools:ignore="ProtectedPermissions" />
 
     <application
         android:allowBackup="true"
@@ -85,6 +94,10 @@
                 android:value="true" />
         </service>
 
+        <!-- The pairing code typed into TabDesk's pairing notification. -->
+        <receiver
+            android:name=".helper.PairCodeReceiver"
+            android:exported="false" />
         <!-- Optional: double-tap the desktop to lock. Enabled by the user in Accessibility settings. -->
         <service
             android:name=".LockService"
