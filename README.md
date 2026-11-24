@@ -1,7 +1,25 @@
 # TabDesk
 
-A small desktop-style home screen for the Lenovo Tab One (TB305FU, Android 15).
-Plain Kotlin + framework Views (no AndroidX, no Compose). The release APK is about 1 MB (mostly the bundled Material Symbols font), and it uses about 50 MB PSS at idle; the optional helper process about 50 MB more.
+A small desktop-style home screen for Android tablets: a desktop with icons, folders and widgets, a
+taskbar, and a Start menu. Built on a Lenovo Tab One (TB305FU, Android 15); it needs Android 12 or later.
+Plain Kotlin + framework Views (no AndroidX, no Compose).
+
+## Install
+
+1. On the tablet, open the [latest release](https://github.com/ronmurphy/tabLauncher/releases/latest)
+   and download the `.apk` file under **Assets**.
+2. Open it (from the download notification, or Files → Downloads). The first time, Android asks to let
+   your browser install apps: tap **Settings**, switch on **Allow from this source**, go back, and tap
+   **Install**.
+3. If Play Protect says it doesn't recognise the app, tap **More details** → **Install anyway**. TabDesk
+   isn't on the Play Store, so Google hasn't seen it before.
+4. Make it your home screen: press the Home button and choose **TabDesk** → **Always**, or open TabDesk,
+   long-press the ◉ button at the bottom left, and use **Screen & system** → **Make default**.
+5. Optional, to have the taskbar show the apps that are running: long-press ◉ → **Helper**, and follow
+   the steps. It takes a few minutes, once.
+
+**Updating:** download the new `.apk` and open it the same way. Your setup is kept.
+**Going back:** Settings → Apps → Default apps → Home app, and pick the one you had. The release APK is about 1 MB (mostly the bundled Material Symbols font), and it uses about 50 MB PSS at idle; the optional helper process about 50 MB more.
 
 ## Using it
 
