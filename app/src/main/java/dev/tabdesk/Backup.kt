@@ -41,22 +41,26 @@ object Backup {
 
     // ------------------------------------------------------------ snapshot
 
-    /** Everything that makes TabDesk yours: settings, taskbar, desktop, folders, renames, hidden apps, font. */
+    /** Everything that makes TabDesk yours: settings, taskbar, desktop, widget dock, folders, renames, hidden apps, font. */
     fun snapshot(act: HomeActivity): JSONObject = JSONObject().apply {
         put("app", "TabDesk"); put("format", 1)
         put("version", BuildInfo.version(act))
         put("saved", System.currentTimeMillis())
         put("device", Build.MODEL)
         put("settings", Prefs.exportSettings())
-        val desk = JSONArray()
-        Prefs.loadDesktop().forEach { item ->
+        put("desktop", itemsJson(act, Prefs.loadDesktop()))
+        put("dock", itemsJson(act, Prefs.loadDock()))
+    }
+
+    /** Items with each widget's maker and name, so a restore can bind the same widget again. */
+    private fun itemsJson(act: HomeActivity, items: List<DesktopItem>) = JSONArray().apply {
+        items.forEach { item ->
             val o = item.toJson()
             if (item.type == DesktopItem.WIDGET) act.widgets.providerOf(item.widgetId)?.let { (cn, label) ->
                 o.put("provider", cn.flattenToString()); o.put("widgetLabel", label)
             }
-            desk.put(o)
+            put(o)
         }
-        put("desktop", desk)
     }
 
     // ------------------------------------------------------------ export
@@ -126,6 +130,7 @@ object Backup {
 
     private fun confirm(act: HomeActivity, o: JSONObject) {
         val items = o.optJSONArray("desktop")?.length() ?: 0
+        val docked = o.optJSONArray("dock")?.length() ?: 0
         val pins = o.optJSONObject("settings")?.optJSONArray("pins")?.length() ?: 0
         val saved = o.optLong("saved").takeIf { it > 0 }?.let { DateFormat.getDateTimeInstance(DateFormat.MEDIUM, DateFormat.SHORT).format(Date(it)) }
         val device = o.optString("device").takeIf { it.isNotBlank() }
@@ -133,8 +138,9 @@ object Backup {
         val card = act.overlays.dialogCard(act.dp(460), "Restore this backup?")
         card.addView(TextView(act).label(act.pal.text, 14.5f).apply {
             text = (if (from.isNotEmpty()) "$from. " else "") +
-                "${plural(items, "item")} on the desktop, ${plural(pins, "app")} on the taskbar.\n\n" +
-                "This replaces your desktop, folders, taskbar, font and Customize settings. " +
+                "${plural(items, "item")} on the desktop, " + (if (docked > 0) "${plural(docked, "item")} in the widget dock, " else "") +
+                "${plural(pins, "app")} on the taskbar.\n\n" +
+                "This replaces your desktop, " + (if (o.has("dock")) "widget dock, " else "") + "folders, taskbar, font and Customize settings. " +
                 "TabDesk keeps a copy of your current setup, so you can undo this in Customize."
             setLineSpacing(0f, 1.15f)
         }, llp(MATCH, WRAP).apply { bottomMargin = act.dp(16) })
@@ -157,8 +163,9 @@ object Backup {
 
     /** Widget ids the undo copy uses; kept bound so undo can bring those widgets back. */
     fun heldWidgets(ctx: Context): Set<Int> = held ?: try {
-        val a = JSONObject(undoFile(ctx).readText()).getJSONArray("desktop")
-        (0 until a.length()).map { a.getJSONObject(it) }.filter { it.optInt("type") == DesktopItem.WIDGET }.map { it.optInt("wid", -1) }.toSet()
+        val o = JSONObject(undoFile(ctx).readText())
+        listOfNotNull(o.optJSONArray("desktop"), o.optJSONArray("dock")).flatMap { a -> (0 until a.length()).map { a.getJSONObject(it) } }
+            .filter { it.optInt("type") == DesktopItem.WIDGET }.map { it.optInt("wid", -1) }.toSet()
     } catch (e: Exception) { emptySet<Int>() }.also { held = it }
 
     fun undo(act: HomeActivity) {
@@ -176,22 +183,28 @@ object Backup {
         Prefs.importSettings(o.optJSONObject("settings") ?: JSONObject())
         Apps.load()  // picked icons and the icon style may have changed
 
-        val a = o.optJSONArray("desktop") ?: JSONArray()
-        val items = ArrayList<DesktopItem>()
         val lost = ArrayList<String>()
-        for (i in 0 until a.length()) {
-            val j = a.optJSONObject(i) ?: continue
-            val item = try { DesktopItem.fromJson(j) } catch (e: Exception) { continue }
-            if (item.type !in listOf(DesktopItem.APP, DesktopItem.WIDGET, DesktopItem.SHORTCUT, DesktopItem.FOLDER)) continue
-            if (item.type == DesktopItem.WIDGET) {
-                val id = act.widgets.restore(item.widgetId, ComponentName.unflattenFromString(j.optString("provider")))
-                if (id == -1) { lost += j.optString("widgetLabel").ifBlank { "a widget" }; continue }
-                item.widgetId = id
+        fun items(a: JSONArray, types: List<Int>): ArrayList<DesktopItem> {
+            val items = ArrayList<DesktopItem>()
+            for (i in 0 until a.length()) {
+                val j = a.optJSONObject(i) ?: continue
+                val item = try { DesktopItem.fromJson(j) } catch (e: Exception) { continue }
+                if (item.type !in types) continue
+                if (item.type == DesktopItem.WIDGET) {
+                    val id = act.widgets.restore(item.widgetId, ComponentName.unflattenFromString(j.optString("provider")))
+                    if (id == -1) { lost += j.optString("widgetLabel").ifBlank { "a widget" }; continue }
+                    item.widgetId = id
+                }
+                items += item
             }
-            items += item
+            return items
         }
+        val items = items(o.optJSONArray("desktop") ?: JSONArray(),
+            listOf(DesktopItem.APP, DesktopItem.WIDGET, DesktopItem.SHORTCUT, DesktopItem.FOLDER, DesktopItem.FILES))
         Prefs.saveDesktop(items)
         act.repinShortcuts(items)
+        // Backups from before the dock have none: the dock stays as it is.
+        o.optJSONArray("dock")?.let { Prefs.saveDock(items(it, listOf(DesktopItem.WIDGET, DesktopItem.FILES))) }
 
         Fonts.load(act)
         act.overlays.dismissAll()

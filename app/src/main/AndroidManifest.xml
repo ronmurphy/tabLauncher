@@ -12,6 +12,8 @@
     <!-- Battery tap / swipe down on the desktop pulls down the system notification panel. -->
     <uses-permission android:name="android.permission.EXPAND_STATUS_BAR" />
     <!-- Screen timeout in Customize and the Keep awake tile ("Modify system settings", granted by the user). -->
+    <!-- Previews of floating windows on the taskbar, shown above the windows. The helper grants it (Setup's Allow). -->
+    <uses-permission android:name="android.permission.SYSTEM_ALERT_WINDOW" />
     <uses-permission android:name="android.permission.WRITE_SETTINGS"
         tools:ignore="ProtectedPermissions" />
     <!-- Running apps on the taskbar: TabDesk talks to the tablet's own wireless debugging (on 127.0.0.1).
@@ -27,6 +29,10 @@
     <!-- Lets TabDesk switch wireless debugging on at startup. Only adb can grant it, which TabDesk does once paired. -->
     <uses-permission android:name="android.permission.WRITE_SECURE_SETTINGS"
         tools:ignore="ProtectedPermissions" />
+    <!-- Folder View: showing a folder's files on the desktop. Asked for only when the user adds one; they turn it on
+         in Android's own "All files access" page. -->
+    <uses-permission android:name="android.permission.MANAGE_EXTERNAL_STORAGE"
+        tools:ignore="ScopedStorage" />
 
     <application
         android:allowBackup="true"
@@ -73,6 +79,12 @@
             </intent-filter>
         </activity>
 
+        <!-- Hands one file to the app the user opens, shares or drags it to from a Folder View (read only). -->
+        <provider
+            android:name=".FilesProvider"
+            android:authorities="dev.tabdesk.files"
+            android:exported="false"
+            android:grantUriPermissions="true" />
         <!-- Accepts "Add to Home screen" shortcut requests (e.g. from Chrome). -->
         <activity
             android:name=".PinActivity"

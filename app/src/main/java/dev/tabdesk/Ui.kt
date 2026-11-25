@@ -149,7 +149,8 @@ object G {
     const val PLUS = 16; const val START = 17; const val GLOBE = 18; const val CHECK = 19; const val GRID = 20
     const val HOME = 21; const val BELL = 22; const val WINDOW = 23; const val BOX = 24; const val BOX_ON = 25
     const val EQUALS = 26; const val FOLDER = 27; const val LOCK = 28; const val SAVE = 29; const val PALETTE = 30
-    const val PULSE = 31
+    const val PULSE = 31; const val MINIMISE = 32; const val SNAP_LEFT = 33; const val SNAP_RIGHT = 34
+    const val SNAP_TOP = 35; const val SNAP_BOTTOM = 36; const val RESTORE = 37; const val DESKTOP = 38
 }
 
 class Glyph(private val kind: Int, color: Int) : Drawable() {
@@ -253,6 +254,22 @@ class Glyph(private val kind: Int, color: Int) : Drawable() {
                 c.drawCircle(7.8f, 11f, 1.4f, f); c.drawCircle(10.8f, 7.6f, 1.4f, f); c.drawCircle(15.4f, 8.2f, 1.4f, f)
             }
             G.PULSE -> { poly(2.5f, 12.5f, 7f, 12.5f, 9.5f, 6f, 14f, 18.5f, 16.5f, 12.5f, 21.5f, 12.5f); c.drawPath(p, s) }
+            // An arrow down onto a line: unlike the snap glyphs, no window frame.
+            G.MINIMISE -> { c.line(12f, 4f, 12f, 14.5f); c.line(7.5f, 10f, 12f, 14.5f); c.line(16.5f, 10f, 12f, 14.5f); c.line(5f, 19.5f, 19f, 19.5f) }
+            // A window with the half it snaps to filled in.
+            G.SNAP_LEFT, G.SNAP_RIGHT, G.SNAP_TOP, G.SNAP_BOTTOM -> {
+                c.rr(3f, 4.5f, 21f, 19.5f, 2.5f)
+                when (kind) {
+                    G.SNAP_LEFT -> r.set(5.5f, 7f, 11.2f, 17f)
+                    G.SNAP_RIGHT -> r.set(12.8f, 7f, 18.5f, 17f)
+                    G.SNAP_TOP -> r.set(5.5f, 7f, 18.5f, 11.2f)
+                    else -> r.set(5.5f, 12.8f, 18.5f, 17f)
+                }
+                c.drawRoundRect(r, 1.2f, 1.2f, f)
+            }
+            G.RESTORE -> { c.rr(8f, 3.5f, 20.5f, 14.5f, 2f); poly(8f, 9.5f, 3.5f, 9.5f, 3.5f, 20.5f, 14.5f, 20.5f, 14.5f, 14.5f); c.drawPath(p, s) }
+            // Show desktop: a screen with the windows gone, only the taskbar left.
+            G.DESKTOP -> { c.rr(3f, 4.5f, 21f, 19.5f, 2.5f); c.line(3f, 16f, 21f, 16f); c.drawCircle(6.5f, 17.8f, 0.9f, f) }
             G.EQUALS -> { c.line(6f, 9.5f, 18f, 9.5f); c.line(6f, 14.5f, 18f, 14.5f) }
             G.FOLDER -> {
                 poly(3f, 6.5f, 3f, 18.5f, 21f, 18.5f, 21f, 8.5f, 11.5f, 8.5f, 9.5f, 5.5f, 4f, 5.5f, close = true); c.drawPath(p, s)
@@ -330,6 +347,8 @@ class PressHelper(
     private val mouseDrag: Boolean = true,
     /** Middle-click (the wheel pressed): the other way to open, e.g. in a floating window. None: it does nothing. */
     var onMiddle: ((View) -> Unit)? = null,
+    /** A mouse pointer came onto the view (true) or left it (false), e.g. for window previews on the taskbar. */
+    var onHover: ((View, Boolean) -> Unit)? = null,
 ) : View.OnTouchListener {
     companion object {
         /** A mouse right-click, or a pen's side button: the gesture that opens a menu straight away. */
@@ -351,8 +370,8 @@ class PressHelper(
         // These views take touches themselves, so Android doesn't mark them hovered: do it, for rippleBg's highlight.
         view.setOnHoverListener { v, e ->
             if (e.isFromSource(InputDevice.SOURCE_MOUSE)) when (e.actionMasked) {
-                MotionEvent.ACTION_HOVER_ENTER -> v.isHovered = true
-                MotionEvent.ACTION_HOVER_EXIT -> v.isHovered = false
+                MotionEvent.ACTION_HOVER_ENTER -> { v.isHovered = true; onHover?.invoke(v, true) }
+                MotionEvent.ACTION_HOVER_EXIT -> { v.isHovered = false; onHover?.invoke(v, false) }
             }
             false
         }

@@ -1,6 +1,9 @@
 package dev.tabdesk.helper
 
 import android.content.Context
+import android.graphics.Bitmap
+import android.graphics.BitmapFactory
+import android.graphics.Rect
 import android.net.ConnectivityManager
 import android.net.Network
 import android.net.NetworkCapabilities
@@ -9,6 +12,7 @@ import android.os.Handler
 import android.os.Looper
 import android.os.SystemClock
 import android.provider.Settings
+import android.util.Base64
 import android.util.Log
 import java.io.BufferedReader
 import java.io.File
@@ -32,12 +36,20 @@ internal object HelperClient {
     /** The helper listens on IPv4's 127.0.0.1 (Android's "loopback address" is IPv6's ::1). */
     private val LOCAL: InetAddress = InetAddress.getByName("127.0.0.1")
 
-    class Task(val id: Int, val pkg: String, val running: Boolean, val visible: Boolean, val lastActive: Long)
+    /**
+     * A task as the helper reports it. [visible]: on screen now (a minimised window is running but not visible).
+     * [floating]: in a floating window, which [bounds] gives in screen pixels. [focused]: the window in use.
+     */
+    class Task(val id: Int, val pkg: String, val running: Boolean, val visible: Boolean, val lastActive: Long,
+               val floating: Boolean = false, val focused: Boolean = false, val bounds: Rect? = null)
 
     /** The tasks in Recents as the helper last reported them, newest first; empty when it isn't connected. */
     @Volatile var tasks: List<Task> = emptyList()
         private set
     @Volatile var connected = false
+        private set
+    /** A window on screen hides other apps' overlays just now (only known while a floating window shows). */
+    @Volatile var overlaysHidden = false
         private set
     /** Why the helper isn't running, for the Helper page. Null while connected or starting. */
     @Volatile var problem: String? = null
@@ -64,6 +76,56 @@ internal object HelperClient {
 
     /** Asks the helper to close a task, as swiping it away in Recents does. */
     fun close(taskId: Int) = exec.execute { send("close $taskId") }
+
+    /** Minimises a task's window: it goes behind the desktop and keeps running. */
+    fun minimise(taskId: Int) {
+        expect(taskId, visible = false)
+        exec.execute { send("min $taskId") }
+    }
+
+    /** Brings a task's window to the front as it was, e.g. after [minimise]. */
+    fun front(taskId: Int) {
+        expect(taskId, visible = true)
+        exec.execute { send("front $taskId") }
+    }
+
+    /**
+     * Shows a change at once, before the helper's next list confirms it (it can take a moment), so a second tap
+     * straight after the first sees it: a window brought back is also first in the list again.
+     */
+    private fun expect(taskId: Int, visible: Boolean) {
+        val t = tasks.firstOrNull { it.id == taskId } ?: return
+        val now = Task(t.id, t.pkg, t.running, visible, t.lastActive, t.floating, visible && t.focused, t.bounds)
+        val rest = tasks.filter { it.id != taskId }
+        tasks = if (visible) listOf(now) + rest else tasks.map { if (it.id == taskId) now else it }
+        changed()
+    }
+
+    /** Moves and resizes a floating window to [r], in screen pixels. */
+    fun resize(taskId: Int, r: Rect) = exec.execute { send("resize $taskId ${r.left} ${r.top} ${r.right} ${r.bottom}") }
+
+    private val previewsWaiting = HashMap<Int, ArrayList<(Bitmap?) -> Unit>>()
+
+    /**
+     * A picture of a task's window, at most [maxPx] on its longer side, given to [done] on the main thread: null if
+     * there's none, or the helper doesn't answer within a few seconds.
+     */
+    fun preview(taskId: Int, maxPx: Int, done: (Bitmap?) -> Unit) {
+        if (!connected) { done(null); return }
+        val first = synchronized(previewsWaiting) {
+            val list = previewsWaiting.getOrPut(taskId) { ArrayList() }
+            list += done
+            list.size == 1
+        }
+        if (!first) return   // already asked; this one gets the same answer
+        exec.execute { send("shot $taskId $maxPx") }
+        main.postDelayed({ answerPreview(taskId, null) }, 4000)
+    }
+
+    private fun answerPreview(taskId: Int, bmp: Bitmap?) {
+        val list = synchronized(previewsWaiting) { previewsWaiting.remove(taskId) } ?: return
+        main.post { list.forEach { it(bmp) } }
+    }
 
     private fun send(line: String) = try { out?.run { write("$line\n".toByteArray()); flush() } } catch (_: Exception) { }
 
@@ -160,18 +222,28 @@ internal object HelperClient {
             while (true) {
                 val line = inp.readLine() ?: break
                 if (line.startsWith("tasks")) {
+                    overlaysHidden = line.substringBefore('\t') == "tasks hides"
                     tasks = line.split('\t').drop(1).mapNotNull { t ->
                         val w = t.split(' ')
                         if (w.size < 5) null
-                        else Task(w[0].toInt(), w[1], w[2] == "1", w[3] == "1", w[4].toLongOrNull() ?: 0L)
+                        else Task(w[0].toInt(), w[1], w[2] == "1", w[3] == "1", w[4].toLongOrNull() ?: 0L,
+                            floating = w.getOrNull(5) == "5", focused = w.getOrNull(6) == "1", bounds = rect(w.getOrNull(7)))
                     }
                     changed()
+                } else if (line.startsWith("shot ")) {
+                    val w = line.split(' ', limit = 3)
+                    val id = w.getOrNull(1)?.toIntOrNull() ?: continue
+                    val bmp = w.getOrNull(2)?.takeIf { it != "-" }?.let {
+                        try { Base64.decode(it, Base64.NO_WRAP).let { b -> BitmapFactory.decodeByteArray(b, 0, b.size) } }
+                        catch (_: Exception) { null }
+                    }
+                    answerPreview(id, bmp)
                 }
             }
         } catch (_: Exception) {
         } finally {
             try { sock.close() } catch (_: Exception) {}
-            out = null; connected = false; tasks = emptyList()
+            out = null; connected = false; tasks = emptyList(); overlaysHidden = false
             Log.i(TAG, "helper connection ended")
             problem = "The helper stopped"
             changed()
@@ -179,6 +251,12 @@ internal object HelperClient {
             failures++
             retryLater()
         }
+    }
+
+    /** "left,top,right,bottom", as the helper writes a window's bounds; null for "-" or an empty one. */
+    private fun rect(s: String?): Rect? {
+        val n = s?.split(',')?.mapNotNull { it.toIntOrNull() }?.takeIf { it.size == 4 } ?: return null
+        return Rect(n[0], n[1], n[2], n[3]).takeIf { !it.isEmpty }
     }
 
     /** Tries again later, waiting longer after each failure so a lasting problem doesn't keep switching things. */

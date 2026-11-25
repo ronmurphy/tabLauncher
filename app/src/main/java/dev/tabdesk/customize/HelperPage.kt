@@ -45,14 +45,21 @@ internal fun Page.helper() {
     Setup.extraStep()?.let { x ->
         step(n++, s.finished, x.title, x.how, "Open") { Setup.openDeveloperOptions(act) }
     }
-    step(n, s.finished, "Let TabDesk finish setting up",
-        if (s.finished) "Done. TabDesk can switch wireless debugging on by itself when it needs it." +
+    // Set up before window previews came in: Allow is needed once more, for "Display over other apps". The helper
+    // never grants anything by itself; the user taps Allow.
+    val needsOverlay = s.finished && act.canFloat && !android.provider.Settings.canDrawOverlays(act)
+    step(n, s.finished && !needsOverlay, "Let TabDesk finish setting up",
+        if (needsOverlay) "Tap Allow once more to let TabDesk show menus and previews above floating windows " +
+            "(Android’s “Display over other apps”). Without it, floating windows can cover them." +
+            (Setup.problem?.let { "\n\nThat didn't work: $it." } ?: "")
+        else if (s.finished) "Done. TabDesk can switch wireless debugging on by itself when it needs it." +
             (Setup.skipped.takeIf { it.isNotEmpty() }?.let { "\nThis tablet didn’t allow: ${it.joinToString(", ")}." } ?: "")
         else "Tap Allow to let TabDesk, through wireless debugging:\n" +
             "• switch wireless debugging on by itself, e.g. after a restart\n" +
             "• show your recently used apps on the taskbar\n" +
             "• add widgets without asking each time\n" +
             "• show notification dots on apps\n" +
+            (if (act.canFloat) "• show previews of floating windows above them\n" else "") +
             (if (android.os.Build.VERSION.SDK_INT >= 33) "• let you turn on double-tap to lock in Accessibility settings\n" else "") +
             "TabDesk also keeps USB debugging on, so the helper keeps running when wireless debugging is off." +
             (Setup.problem?.let { "\n\nThat didn't work: $it." } ?: ""),

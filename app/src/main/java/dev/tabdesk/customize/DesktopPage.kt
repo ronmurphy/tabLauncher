@@ -19,7 +19,9 @@ internal fun Page.desktop() {
     })
     showGrid()
     add(switchRow(act, "Show icon labels", Prefs.labels) { Prefs.labels = it; act.desktop.applyMetrics(); showGrid() })
-    addNote("Icons keep their places when the grid changes; widgets keep their size in cells. Drop one app on another to make a folder.")
+    add(switchRow(act, "Show desktop icons", Prefs.showIcons) { Prefs.showIcons = it; act.desktop.applyShowIcons() })
+    addNote("Icons keep their places when the grid changes, or while they're hidden; widgets keep their size in cells. " +
+        "Drop one app on another to make a folder. Hidden icons' apps are still in Start; widgets and Folder Views stay.")
 
     section("Gestures")
     add(switchRow(act, "Double-tap the desktop to lock the screen", Prefs.doubleTapLock) { Prefs.doubleTapLock = it })

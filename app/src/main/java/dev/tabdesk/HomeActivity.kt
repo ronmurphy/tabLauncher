@@ -56,6 +56,7 @@ class HomeActivity : Activity() {
     lateinit var taskbar: Taskbar; private set
     lateinit var overlays: Overlays; private set
     lateinit var widgets: Widgets; private set
+    lateinit var dock: Dock; private set
     private lateinit var startLayer: FrameLayout
     lateinit var startMenu: StartMenu; private set
     val la: LauncherApps by lazy { getSystemService(LauncherApps::class.java) }
@@ -70,7 +71,7 @@ class HomeActivity : Activity() {
     private val appsListener: () -> Unit = { onAppsChanged() }
     private val badgeListener: () -> Unit = { onBadgesChanged() }
     private val setupListener: () -> Unit = { Customize.refreshIf(this, Customize.HELPER) }
-    private val tasksListener: () -> Unit = { taskbar.bindRecents(); taskbar.bindHelper() }
+    private val tasksListener: () -> Unit = { taskbar.bindRecents(force = false); taskbar.bindHelper(); Windows.track(this) }
     private val updatesListener: () -> Unit = { Customize.refreshIf(this, Customize.ABOUT) }
 
     private val batteryReceiver = object : BroadcastReceiver() {
@@ -142,16 +143,21 @@ class HomeActivity : Activity() {
         Recents.refresh(this) { taskbar.bindRecents() }
         Customize.refreshIf(this, Customize.HELPER)
         Updates.resumed(this)
+        FolderViews.resumed(this)
     }
 
     override fun onPause() {
         super.onPause()
         isResumedNow = false
         inFront = false
+        Previews.hide()
+        overlays.dismissAbove()
     }
 
     override fun onStop() {
         super.onStop()
+        // An app opened from it (or anything else) is in front: the dock is closed when you come back.
+        dock.close()
         widgets.stopListening()
         try { unregisterReceiver(batteryReceiver) } catch (e: Exception) { }
     }
@@ -197,6 +203,8 @@ class HomeActivity : Activity() {
         if (night != nightFlags && Prefs.themeMode == 0) { nightFlags = night; rebuildUi() }
         else { nightFlags = night; root.requestApplyInsets() }
         if (reopen) root.post { Customize.show(this, restoreScroll = true) }
+        // Once the taskbar has its new place: snapped windows fit the turned screen.
+        root.postDelayed({ Windows.refit(this) }, 300)
     }
 
     @Deprecated("Deprecated in Java")
@@ -239,6 +247,7 @@ class HomeActivity : Activity() {
 
         overlays = Overlays(this)
         root.addView(overlays, flp(MATCH, MATCH))
+        dock = Dock(this)
 
         root.setOnApplyWindowInsetsListener { _, ins -> applyInsets(ins); WindowInsets.CONSUMED }
         setContentView(root)
@@ -269,7 +278,11 @@ class HomeActivity : Activity() {
     }
 
     private fun applyInsets(ins: WindowInsets) {
-        bars = ins.getInsets(WindowInsets.Type.systemBars() or WindowInsets.Type.displayCutout())
+        // With the status bar hidden, it only shows for a moment (a swipe down, or a dialog above floating windows
+        // holding the keyboard): the desktop keeps its size rather than shuffling icons under it.
+        val barTypes = if (Prefs.hideStatus) WindowInsets.Type.navigationBars() or WindowInsets.Type.captionBar()
+            else WindowInsets.Type.systemBars()
+        bars = ins.getInsets(barTypes or WindowInsets.Type.displayCutout())
         ime = ins.getInsets(WindowInsets.Type.ime()).bottom
         taskbar.applyInsets(bars)
         desktop.setPadding(bars.left + dp(6), bars.top + dp(6), bars.right + dp(6), dp(Prefs.taskbarDp) + bars.bottom + dp(4))
@@ -292,7 +305,7 @@ class HomeActivity : Activity() {
         taskbar.bindPins()
         desktop.refreshApps()
         if (startMenu.isOpen) startMenu.refresh()
-        widgets.cleanup(desktop.widgetIds())
+        widgets.cleanup(desktop.widgetIds() + dock.widgetIds())
     }
 
     fun onBadgesChanged() {
@@ -378,10 +391,29 @@ class HomeActivity : Activity() {
     /** Middle-click on an app: a floating window where the tablet has them, otherwise a normal launch. */
     fun launchInWindow(app: AppInfo, from: View?) = if (canFloat) launchFloating(app) else launch(app, from)
 
-    val canFloat: Boolean by lazy { packageManager.hasSystemFeature(android.content.pm.PackageManager.FEATURE_FREEFORM_WINDOW_MANAGEMENT) }
+    /** Floating windows: the maker says so, or Developer options → "Enable freeform windows" is on. */
+    val canFloat: Boolean by lazy {
+        packageManager.hasSystemFeature(android.content.pm.PackageManager.FEATURE_FREEFORM_WINDOW_MANAGEMENT) ||
+            android.provider.Settings.Global.getInt(contentResolver, "enable_freeform_support", 0) != 0
+    }
 
-    /** Open [app] in a floating (freeform) window, centred and sized for the current orientation. */
-    fun launchFloating(app: AppInfo) {
+    val isLandscape: Boolean get() = windowManager.currentWindowMetrics.bounds.let { it.width() > it.height() }
+
+    /**
+     * The screen apart from the taskbar and the status bar, in screen pixels: where snapped windows go. Android keeps
+     * floating windows below the status bar even while TabDesk hides it, moving one placed higher down (whole).
+     */
+    fun workArea(): Rect {
+        val m = windowManager.currentWindowMetrics
+        val b = m.bounds
+        val ins = m.windowInsets.getInsetsIgnoringVisibility(WindowInsets.Type.statusBars() or WindowInsets.Type.displayCutout())
+        val at = IntArray(2).also { taskbar.getLocationOnScreen(it) }
+        val bottom = if (taskbar.isShown && at[1] > b.top) at[1] else b.bottom - ins.bottom
+        return Rect(b.left + ins.left, b.top + ins.top, b.right - ins.right, bottom)
+    }
+
+    /** Options that open an activity in a floating (freeform) window, centred and sized for the orientation. */
+    fun floatingOptions(): android.os.Bundle {
         val b = windowManager.currentWindowMetrics.bounds
         val land = b.width() > b.height()
         val w = (b.width() * if (land) 0.5f else 0.74f).toInt()
@@ -392,7 +424,12 @@ class HomeActivity : Activity() {
         // Launch bounds alone are ignored unless the window is freeform. The setter for that is hidden API
         // (blocked on Android 15), but the system reads the mode from this bundle key, so set it directly.
         opts.putInt("android.activity.windowingMode", 5 /* WINDOWING_MODE_FREEFORM */)
-        try { la.startMainActivity(app.component, app.user, null, opts) } catch (e: Exception) { toast("Can't open ${app.label}") }
+        return opts
+    }
+
+    /** Open [app] in a floating (freeform) window. */
+    fun launchFloating(app: AppInfo) {
+        try { la.startMainActivity(app.component, app.user, null, floatingOptions()) } catch (e: Exception) { toast("Can't open ${app.label}") }
         if (startMenu.isOpen) main.postDelayed({ closeStart(false) }, 300)
     }
 
@@ -554,10 +591,12 @@ class HomeActivity : Activity() {
         if (!app.system) e += MenuEntry("Uninstall", G.TRASH) {
             safeStart(Intent(Intent.ACTION_DELETE, Uri.fromParts("package", app.pkg, null)))
         }
-        // Running (the helper knows): close it, as swiping it away in Recents does.
+        // Running (the helper knows): minimise or restore, snap a floating window, and close it, as swiping it
+        // away in Recents does.
         val tasks = HelperClient.tasks.filter { it.pkg == app.pkg }
         if (tasks.any { it.running }) {
             e += MenuEntry.DIVIDER
+            e += Windows.menuEntries(this, app)
             e += MenuEntry(if (tasks.size > 1) "Close ${tasks.size} windows" else "Close", G.CLOSE) {
                 tasks.forEach { HelperClient.close(it.id) }
             }
@@ -580,6 +619,7 @@ class HomeActivity : Activity() {
         val e = ArrayList<MenuEntry>()
         if (widgets.canResize(item)) e += MenuEntry("Resize", G.RESIZE) { desktop.startResize(item) }
         if (widgets.canReconfigure(item)) e += MenuEntry("Widget settings", G.SLIDERS) { widgets.reconfigure(item) }
+        e += MenuEntry("Move to the dock", G.WIDGETS) { dock.takeFromDesktop(item, anchor.height) }
         e += MenuEntry("Remove widget", G.TRASH) { desktop.remove(item) }
         overlays.menu(anchorOf(anchor), e, widgets.info(item)?.loadLabel(packageManager))
     }
@@ -588,6 +628,7 @@ class HomeActivity : Activity() {
         closeStart()
         overlays.menu(Rect(x.toInt(), y.toInt(), x.toInt(), y.toInt()), listOf(
             MenuEntry("Add widget", G.WIDGETS) { widgets.showPicker(cell) },
+            MenuEntry("Add Folder View", G.FOLDER) { addFolderView(cell) },
             MenuEntry("Arrange icons", G.GRID) { desktop.arrange() },
             MenuEntry("Wallpaper", G.IMAGE) { pickWallpaper() },
             MenuEntry("Customize", G.SLIDERS) { showSettings() },

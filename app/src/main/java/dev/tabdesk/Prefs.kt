@@ -76,6 +76,10 @@ object Prefs {
     var labels: Boolean
         get() = sp.getBoolean("labels", true)
         set(v) = sp.edit().putBoolean("labels", v).apply()
+    /** App, shortcut and folder icons on the desktop (widgets and Folder Views show either way). */
+    var showIcons: Boolean
+        get() = sp.getBoolean("showIcons", true)
+        set(v) = sp.edit().putBoolean("showIcons", v).apply()
     var taskbarDp: Int
         get() = sp.getInt("taskbarDp", 56)
         set(v) = sp.edit().putInt("taskbarDp", v).apply()
@@ -136,8 +140,8 @@ object Prefs {
         set(v) { sp.edit().putString("updatingTo", v).commit() }
 
     // ---- backup: everything in Customize plus pins, renames, hidden apps (the desktop is saved separately)
-    private val backupInts = listOf("theme", "accent", "iconDp", "cellDp", "taskbarDp", "iconStyle")
-    private val backupBools = listOf("dots", "labels", "hideStatus", "doubleTapLock", "recents", "autoUpdates")
+    private val backupInts = listOf("theme", "accent", "iconDp", "cellDp", "taskbarDp", "iconStyle", "dockDp")
+    private val backupBools = listOf("dots", "labels", "showIcons", "hideStatus", "doubleTapLock", "recents", "autoUpdates")
     private val backupLists = listOf("pins", "floatApps", "removedAdded")
 
     fun exportSettings(): JSONObject = JSONObject().apply {
@@ -166,6 +170,7 @@ object Prefs {
         int("cellDp") { it in 72..140 }
         int("taskbarDp") { it in listOf(48, 56, 64) }
         int("iconStyle") { it in 0 until Icons.STYLES.size }
+        int("dockDp") { it in Dock.MIN_DP..Dock.MAX_DP }
         backupBools.forEach { k -> if (o.has(k)) e.putBoolean(k, o.optBoolean(k)) }
         backupLists.forEach { k -> o.optJSONArray(k)?.let { e.putString(k, JSONArray(strings(it)).toString()) } }
         o.optJSONObject("renames")?.let { r ->
@@ -240,7 +245,26 @@ object Prefs {
         sp.edit().putString("desktop", a.toString()).apply()
     }
 
-    // A widget mid-way through the bind / configure flow.
+    /** The widget dock's items, in order (WIDGET or FILES; spanY = height in dp). */
+    fun loadDock(): MutableList<DesktopItem> = try {
+        val a = JSONArray(sp.getString("dock", "[]"))
+        MutableList(a.length()) { DesktopItem.fromJson(a.getJSONObject(it)) }
+    } catch (e: Exception) { ArrayList() }
+
+    fun saveDock(items: List<DesktopItem>) {
+        val a = JSONArray(); items.forEach { a.put(it.toJson()) }
+        sp.edit().putString("dock", a.toString()).apply()
+    }
+
+    /** The widget dock's width. */
+    var dockDp: Int
+        get() = sp.getInt("dockDp", 360)
+        set(v) = sp.edit().putInt("dockDp", v).apply()
+
+    // A widget mid-way through the bind / configure flow (pendingDock: it's going into the widget dock).
+    var pendingDock: Boolean
+        get() = sp.getBoolean("pendingDock", false)
+        set(v) = sp.edit().putBoolean("pendingDock", v).apply()
     var pendingWidget: Int
         get() = sp.getInt("pendingWidget", -1)
         set(v) = sp.edit().putInt("pendingWidget", v).apply()

@@ -50,6 +50,14 @@ class Taskbar(private val act: HomeActivity) : LinearLayout(act) {
     private val strip = AppStrip()
     val battery = BatteryView(act, pal.text, pal.accent)
     private val helperIcon = FrameLayout(act)
+    private val desktopBtn = FrameLayout(act)
+    private val dockBtn = FrameLayout(act)
+
+    /** Lit while the widget dock is open. */
+    fun setDockActive(on: Boolean) {
+        dockBtn.background = if (on) android.graphics.drawable.RippleDrawable(android.content.res.ColorStateList.valueOf(pal.ripple),
+            rounded(withAlpha(pal.accent, 0x33), dpf(12)), null) else rippleBg(pal.ripple, dpf(12))
+    }
     private var dropIndex = -1
     private var draggingKey: String? = null
     private val paint = Paint(Paint.ANTI_ALIAS_FLAG)
@@ -95,6 +103,16 @@ class Taskbar(private val act: HomeActivity) : LinearLayout(act) {
         strip.addView(recents, llp(WRAP, MATCH))
         addView(strip, llp(0, MATCH, 1f))
 
+        // The widget dock: widgets and Folder Views in a panel at the right, kept off the desktop.
+        dockBtn.apply {
+            background = rippleBg(pal.ripple, dpf(12))
+            contentDescription = "Widgets"
+            tooltipText = "Widgets"
+            addView(ImageView(act).apply { setImageDrawable(Glyph(G.WIDGETS, pal.textDim)) }, flp(s(20), s(20), Gravity.CENTER))
+            setOnClickListener { Previews.hide(); act.dock.toggle() }
+        }
+        addView(dockBtn, llp(s(38), s(44)).apply { marginEnd = dp(2) })
+
         battery.setPadding(dp(8), 0, dp(8), 0)
         battery.background = rippleBg(pal.ripple, dpf(12))
         // Tap: Android's own notification / quick-settings panel. Long-press or right-click: battery usage.
@@ -127,10 +145,22 @@ class Taskbar(private val act: HomeActivity) : LinearLayout(act) {
             setOnClickListener { act.showSettings(Customize.HELPER) }
         }
         addView(helperIcon, llp(s(34), s(44)))
+
+        // Show desktop, at the far end as on other desktops: minimises every window, and brings them back. Only
+        // with floating windows and the helper.
+        desktopBtn.apply {
+            background = rippleBg(pal.ripple, dpf(12))
+            contentDescription = "Show desktop"
+            tooltipText = "Show desktop"
+            addView(ImageView(act).apply { setImageDrawable(Glyph(G.DESKTOP, pal.textDim)) }, flp(s(20), s(20), Gravity.CENTER))
+            setOnClickListener { Previews.hide(); Windows.showDesktop(act) }
+        }
+        addView(desktopBtn, llp(s(34), s(44)))
         bindHelper()
     }
 
     fun bindHelper() {
+        desktopBtn.visibility = if (HelperClient.connected && act.canFloat) VISIBLE else GONE
         if (!AdbKey.exists(act)) { helperIcon.visibility = GONE; return }
         helperIcon.visibility = VISIBLE
         val on = HelperClient.connected
@@ -164,19 +194,37 @@ class Taskbar(private val act: HomeActivity) : LinearLayout(act) {
     }
 
     /** After the pins: the apps that are running, when the helper says so; otherwise recently used ones. */
-    fun bindRecents() {
-        recents.removeAllViews()
+    /** The apps the recent/running part shows, in order, and whether they're running apps (from the helper). */
+    private var shownKeys: List<String> = emptyList()
+    private var shownRunning = false
+
+    /**
+     * The recent or running apps after the pinned ones. [force] rebuilds the buttons (icons or settings changed);
+     * otherwise, when the same apps are running, only their marks change, so a press on a button isn't cut short.
+     */
+    fun bindRecents(force: Boolean = true) {
         val pinned = Prefs.pins.mapNotNull { Apps.get(it)?.pkg }.toSet()
         val running = HelperClient.connected
-        val list = if (running) HelperClient.tasks.asSequence().filter { it.running }.map { it.pkg }.distinct()
-            else Recents.shown().asSequence()
-        list.filter { it !in pinned }
+        val list = (if (running) HelperClient.tasks.asSequence().filter { it.running }.map { it.pkg }.distinct()
+            else Recents.shown().asSequence())
+            .filter { it !in pinned }
             .mapNotNull { Apps.firstOf(it) }
             .filter { running || !Prefs.isHidden(it.key) }
-            .take(if (running) MAX_RUNNING else MAX_RECENTS)
-            .forEach { recents.addView(appView(it, recent = !running), llp(s(50), s(48))) }
+            .toList()
+        // Running apps keep their places and a new one goes at the end, so buttons don't move under the pointer.
+        val ordered = if (running && shownRunning) {
+            val byKey = list.associateBy { it.key }
+            shownKeys.mapNotNull { byKey[it] } + list.filter { it.key !in shownKeys }
+        } else list
+        val shown = ordered.take(if (running) MAX_RUNNING else MAX_RECENTS)
+        val keys = shown.map { it.key }
+        if (force || keys != shownKeys || running != shownRunning) {
+            recents.removeAllViews()
+            shown.forEach { recents.addView(appView(it, recent = !running), llp(s(50), s(48))) }
+            shownKeys = keys; shownRunning = running
+            strip.requestLayout()
+        }
         markRunning()
-        strip.requestLayout()
     }
 
     /** A short line under each running app; longer, in the accent colour, for one showing in a window now. */
@@ -188,6 +236,8 @@ class Taskbar(private val act: HomeActivity) : LinearLayout(act) {
             val pkg = Apps.get(f.tag as String)?.pkg
             val mine = tasks.filter { it.pkg == pkg && it.running }
             bar.visibility = if (mine.isEmpty()) View.GONE else View.VISIBLE
+            // A running app shows its windows' previews under the pointer; its name is on them, so no tooltip.
+            f.tooltipText = if (mine.isEmpty()) f.contentDescription else null
             val visible = mine.any { it.visible }
             bar.background = rounded(if (visible) pal.accent else pal.textDim, dpf(1.5f))
             val w = if (visible) s(16) else s(6)
@@ -214,9 +264,12 @@ class Taskbar(private val act: HomeActivity) : LinearLayout(act) {
         f.addView(View(act).apply { tag = "run"; visibility = View.GONE },
             flp(s(6), dp(3), Gravity.BOTTOM or Gravity.CENTER_HORIZONTAL).apply { bottomMargin = s(1) })
         f.setOnTouchListener(PressHelper(f,
-            onTap = { act.launch(app, icon) },
+            // With the helper, a running app's button minimises its window or brings it back.
+            onTap = { if (!Windows.tap(act, app, f)) { Previews.hide(); act.launch(app, icon) } },
             onMiddle = { act.launchInWindow(app, icon) },
+            onHover = { v, on -> Previews.hover(act, app, v, on) },
             onLong = { v, _, _ ->
+                Previews.hide()
                 act.appMenu(app, v, extra = if (!recent) null else MenuEntry("Remove from taskbar", G.CLOSE) {
                     Recents.remove(app.pkg); bindRecents()
                 })

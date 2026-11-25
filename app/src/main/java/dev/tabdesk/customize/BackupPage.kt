@@ -18,7 +18,7 @@ internal fun Page.backup() {
     br.addView(backupButton(if (drive) "Import from Google Drive" else "Import backup", false) { Backup.import(act) },
         llp(0, act.dp(40), 1f).apply { marginStart = act.dp(8) })
     add(br)
-    addNote("Saves your desktop, folders, taskbar, hidden and renamed apps, picked icons, icon themes, font and Customize settings as one small file. " +
+    addNote("Saves your desktop, widget dock, folders, taskbar, hidden and renamed apps, picked icons, icon themes, font and Customize settings as one small file. " +
         (if (drive) "In the file picker, choose Drive (tap ☰ the first time); it opens there after that. " else "") +
         "Widgets come back on this device; on a new one, some may need adding again.")
     if (Backup.canUndo(act))

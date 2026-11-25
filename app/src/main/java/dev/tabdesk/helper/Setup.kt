@@ -132,6 +132,7 @@ internal object Setup {
             "cmd notification allow_listener $dots" to "dots",                     // notification dots
             // Lets the user turn on double-tap to lock. Restricted settings arrived in Android 13.
             if (Build.VERSION.SDK_INT >= 33) "appops set $p ACCESS_RESTRICTED_SETTINGS allow" to "restricted" else null,
+            "appops set $p SYSTEM_ALERT_WINDOW allow" to "overlay",                // window previews above floating windows
         ).filterNotNull().joinToString("; ") { (cmd, tag) ->
             // "ok:<what>", or "no:<what>:" and the line of the error that says why.
             "o=\$($cmd 2>&1) && echo ok:$tag || echo \"no:$tag:\$(echo \"\$o\" | grep -m1 -iE 'exception: |denied|error: |not allowed' || echo \"\$o\" | head -n1)\""
@@ -159,7 +160,7 @@ internal object Setup {
     }
 
     private val WHAT = mapOf("usage" to "recently used apps", "widgets" to "adding widgets without asking",
-        "dots" to "notification dots", "restricted" to "double-tap to lock")
+        "dots" to "notification dots", "restricted" to "double-tap to lock", "overlay" to "window previews")
 
     /** Everything about this tablet's setup, as text to paste into a message when something doesn't work. */
     fun details(ctx: Context): String {

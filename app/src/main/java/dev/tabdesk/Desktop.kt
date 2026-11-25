@@ -90,6 +90,7 @@ class DesktopLayout(private val act: HomeActivity) : ViewGroup(act) {
     private fun addViewFor(item: DesktopItem) {
         val v: View = when (item.type) {
             DesktopItem.APP, DesktopItem.SHORTCUT, DesktopItem.FOLDER -> AppCell(item)
+            DesktopItem.FILES -> if (isPanel(item)) FolderPanel(act, item, popup = false) else AppCell(item)
             DesktopItem.WIDGET -> act.widgets.createView(item)?.also { w ->
                 w.press = PressHelper(w,
                     onLong = { v, _, _ -> act.widgetMenu(item, v) },
@@ -99,6 +100,7 @@ class DesktopLayout(private val act: HomeActivity) : ViewGroup(act) {
             else -> return
         }
         views[item.id] = v
+        if (!Prefs.showIcons && isIcon(item)) v.visibility = GONE
         addView(v)
     }
 
@@ -111,6 +113,41 @@ class DesktopLayout(private val act: HomeActivity) : ViewGroup(act) {
     fun addApp(key: String, cell: IntArray? = null) {
         if (has(key)) return
         add(DesktopItem(DesktopItem.newId(), DesktopItem.APP, key), cell)
+        hiddenNote()
+    }
+
+    fun addFolderView(path: String, cell: IntArray?) = add(DesktopItem(DesktopItem.newId(), DesktopItem.FILES, path), cell)
+
+    /** A Folder View bigger than one cell shows its files where it sits; at one cell it's an icon. */
+    private fun isPanel(item: DesktopItem) = item.spanX > 1 || item.spanY > 1
+
+    /** Its view no longer suits its size (icon ↔ panel): make the other kind. */
+    private fun refit(item: DesktopItem) {
+        val v = views[item.id] ?: return
+        if ((v is FolderPanel) == isPanel(item)) return
+        removeView(v); views.remove(item.id)
+        addViewFor(item)
+    }
+
+    /** "Show as a panel" / "Show as an icon": [sx] × [sy] cells, moved to the nearest place with room if need be. */
+    fun setFolderViewSize(item: DesktopItem, sx: Int, sy: Int) {
+        val w = min(sx, cols); val h = min(sy, rows)
+        val p = placed[item.id]
+        if (p != null && !fits(occupancy(item), p[0], p[1], w, h)) {
+            val s = nearestFree(occupancy(item), p[0], p[1], w, h) ?: run { act.toast("No room on the desktop for it"); return }
+            item.pos[orient] = at(s)
+        }
+        item.spanX = w; item.spanY = h
+        refit(item)
+        save(); requestLayout()
+    }
+
+    /** Folder Views read their folders again (access turned on, a folder changed, renamed, sorted). */
+    fun refreshFolderViews(toRoot: Boolean = false) {
+        for (item in items) if (item.type == DesktopItem.FILES) when (val v = views[item.id]) {
+            is FolderPanel -> v.reload(toRoot)
+            is AppCell -> v.bind()
+        }
     }
 
     fun addWidget(id: Int, sx: Int, sy: Int, cell: IntArray?) =
@@ -148,16 +185,44 @@ class DesktopLayout(private val act: HomeActivity) : ViewGroup(act) {
         save(); requestLayout()
     }
 
+    /** Out to the widget dock: off the desktop, its widget kept. */
+    fun takeOut(item: DesktopItem): Boolean {
+        if (!items.remove(item)) return false
+        if (resizing === item) endResize()
+        views.remove(item.id)?.let { removeView(it) }
+        placed.remove(item.id)
+        item.pos.clear()
+        save(); requestLayout()
+        return true
+    }
+
+    /** Back from the dock, to the first place with room; false (with a note) if there's none. */
+    fun putBack(item: DesktopItem): Boolean {
+        val sx = min(item.spanX, cols); val sy = min(item.spanY, rows)
+        val spot = (if (isLaidOut) firstFree(occupancy(null), sx, sy) else intArrayOf(0, 0))
+            ?: run { act.toast("No room on the desktop"); return false }
+        item.pos.clear()
+        if (isLaidOut) { item.pos[orient] = at(spot); placed[item.id] = intArrayOf(spot[0], spot[1], sx, sy) }
+        items += item
+        addViewFor(item)
+        save(); requestLayout()
+        return true
+    }
+
     /** Re-flow icons alphabetically (column by column); widgets stay where they are. */
     fun arrange() {
-        val (widgets, icons) = items.partition { it.type == DesktopItem.WIDGET }
+        val (widgets, icons) = items.partition { it.type == DesktopItem.WIDGET || (it.type == DesktopItem.FILES && isPanel(it)) }
         val sorted = icons.sortedBy { labelOf(it).lowercase() }
         sorted.forEach { it.pos.remove(orient) }
         items = (widgets + sorted).toMutableList()
         save(); requestLayout()
     }
 
-    private fun labelOf(it: DesktopItem) = if (it.type == DesktopItem.APP) Apps.get(it.key)?.label ?: "" else it.label ?: ""
+    private fun labelOf(it: DesktopItem) = when (it.type) {
+        DesktopItem.APP -> Apps.get(it.key)?.label ?: ""
+        DesktopItem.FILES -> FolderViews.labelOf(it)
+        else -> it.label ?: ""
+    }
 
     fun refreshApps() {
         for (v in views.values) if (v is AppCell) v.bind()
@@ -213,11 +278,13 @@ class DesktopLayout(private val act: HomeActivity) : ViewGroup(act) {
                     when (item.type) {
                         DesktopItem.APP -> act.appMenu(Apps.get(item.key), v, desktopItem = item)
                         DesktopItem.FOLDER -> act.folderMenu(item, v)
+                        DesktopItem.FILES -> act.folderViewMenu(item, v)
                         else -> act.shortcutMenu(item, v)
                     }
                 },
                 onDrag = { v, x, y -> startDrag(item, v, x, y) },
-                onMiddle = { if (item.type == DesktopItem.APP) Apps.get(item.key)?.let { act.launchInWindow(it, icon) } else open() }))
+                onMiddle = { if (item.type == DesktopItem.APP) Apps.get(item.key)?.let { act.launchInWindow(it, icon) } else open() },
+                onHover = if (item.type == DesktopItem.FILES) { v, on -> FolderViews.hover(act, item, v, on) } else null))
         }
 
         val present get() = when (item.type) {
@@ -227,7 +294,11 @@ class DesktopLayout(private val act: HomeActivity) : ViewGroup(act) {
         }
 
         fun bind() {
-            if (item.type == DesktopItem.FOLDER) {
+            if (item.type == DesktopItem.FILES) {
+                pkg = ""
+                icon.bitmap = FolderViews.folderIcon(act)
+                label.text = FolderViews.labelOf(item)
+            } else if (item.type == DesktopItem.FOLDER) {
                 pkg = ""
                 icon.bitmap = folderPreview(item.apps.mapNotNull { Apps.get(it) })
                 label.text = item.label ?: "Folder"
@@ -261,6 +332,7 @@ class DesktopLayout(private val act: HomeActivity) : ViewGroup(act) {
             when (item.type) {
                 DesktopItem.APP -> Apps.get(item.key)?.let { act.launch(it, icon) }
                 DesktopItem.FOLDER -> act.openFolder(item, this)
+                DesktopItem.FILES -> act.openFolderView(item, this)
                 else -> act.launchShortcut(item, icon)
             }
         }
@@ -313,8 +385,20 @@ class DesktopLayout(private val act: HomeActivity) : ViewGroup(act) {
 
     private fun isShown(item: DesktopItem): Boolean {
         val v = views[item.id] ?: return false
+        if (!Prefs.showIcons && isIcon(item)) return false
         return v !is AppCell || v.present
     }
+
+    /** The desktop icons "Show desktop icons" hides: apps, shortcuts, folders (not widgets or Folder Views). */
+    private fun isIcon(item: DesktopItem) = item.type == DesktopItem.APP || item.type == DesktopItem.SHORTCUT || item.type == DesktopItem.FOLDER
+
+    /** "Show desktop icons" changed: hidden icons keep their places for when they're shown again. */
+    fun applyShowIcons() {
+        for (item in items) if (isIcon(item)) views[item.id]?.visibility = if (Prefs.showIcons) VISIBLE else GONE
+        requestLayout()
+    }
+
+    private fun hiddenNote() { if (!Prefs.showIcons) act.toast("Added. Desktop icons are hidden: Customize → Desktop shows them") }
 
     /** Where an item wants to be on the current grid: its saved cell, scaled if it was saved for a different grid size. */
     private fun desired(it: DesktopItem): IntArray? {
@@ -445,6 +529,7 @@ class DesktopLayout(private val act: HomeActivity) : ViewGroup(act) {
             placed[item.id] = intArrayOf(spot[0], spot[1], 1, 1)
             items += item
             addViewFor(item)
+            hiddenNote()
         }
         p.folder?.let { f -> p.appKey?.let { removeFromFolder(f, it, persist = false) } }
         save(); requestLayout()
@@ -623,6 +708,7 @@ class DesktopLayout(private val act: HomeActivity) : ViewGroup(act) {
                 val sy = if (axes and 2 != 0) ((e.y - top) / cellH).roundToInt().coerceIn(minY, rows - p[1]) else p[3]
                 if ((sx != p[2] || sy != p[3]) && fits(occupancy(item), p[0], p[1], sx, sy)) {
                     item.spanX = sx; item.spanY = sy
+                    if (item.type == DesktopItem.FILES) refit(item)
                     requestLayout(); invalidate()
                 }
             }

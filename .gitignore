@@ -12,3 +12,6 @@ archive/
 # TabDesk's release key and its password (signing/lineage.bin is public and stays in git)
 signing/*.jks
 signing/keystore.properties
+
+# Design notes kept out of git until the code they describe works, then released with it
+docs/

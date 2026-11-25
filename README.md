@@ -36,14 +36,21 @@ new `.apk` and open it, as when installing. Your setup is kept either way.
 | Taskbar ◉ | tap / long-press | Start menu / Customize |
 | Empty desktop | swipe up / swipe down | Start menu / Android's notification panel |
 | Empty desktop | double-tap | lock the screen (needs Accessibility → **TabDesk screen lock**; the first double-tap explains) |
-| Empty desktop | long-press | Add widget · Arrange icons · Wallpaper · Customize |
+| Empty desktop | long-press | Add widget · Add Folder View · Arrange icons · Wallpaper · Customize |
 | Any app (desktop, taskbar, Start) | tap | open |
 | | long-press | app shortcuts, **open in floating window**, **always open floating** (toggle: a normal tap then opens it floating), pin/unpin taskbar, add/remove desktop, rename, hide (Start), info, uninstall |
 | Recent app on the taskbar (no helper) | long-press → Remove from taskbar | hidden until you next open that app |
 | Running app (taskbar, desktop, Start) | long-press → Close | closes it, as swiping it away in Recents does (needs the helper) |
+| Running app on the taskbar | tap | the window in use minimises; a minimised one (or one behind others) comes back; with several windows, their previews show to pick from (tap again to close them) (needs the helper) |
+| | long-press | also **Minimise** / **Restore**, and for a floating window **Snap left / right** (top / bottom in portrait), **Fill the screen** and **Back to its size** |
+| Preview of a window | tap / × | brings that window to the front / closes it |
+| Taskbar, far right (floating windows + helper) | tap **Show desktop** | minimises every window; tap again to bring them back as they were |
 | "Recently added" app in Start | long-press → Remove from Recently added | dropped from that list for good |
 | | long-press **and keep moving** | drag: Start → desktop, Start/desktop → taskbar, reorder taskbar, move on desktop |
-| Widget | long-press | Resize (drag the dot) · Widget settings · Remove; long-press + move drags it |
+| Widget | long-press | Resize (drag the dot) · Widget settings · Move to the dock · Remove; long-press + move drags it |
+| Taskbar widgets button (left of the battery) | tap | the **widget dock**: widgets and Folder Views in a panel at the right, kept off the desktop. **+** adds one; drag its left edge to make it wider; long-press an item for Resize (drag the bar under it) · Move up / down · Move to the desktop · Remove. Opens above floating windows; a tap outside closes it |
+| Folder View (one icon) | tap / rest the mouse on it / long-press | a folder's files in a popup (moving the mouse away closes it) / the same / New folder · Newest first · Show another folder · Rename · Show as a panel · Move to the dock · Remove. Needs Android's **All files access**, which the first Folder View asks you to turn on |
+| Folder View (panel, or in the dock) | tap a file / middle-click / long-press it | open it / open it in a floating window / Open · Open in a window · Open with · Share · Rename · Delete; long-press **and move** drags the file into another app or onto another Folder View (Move here / Copy here); files dragged in from other apps are copied in |
 | Start A–Z bar | tap a letter / number | shows only apps starting with it (tap again or Back for all); only characters your apps start with appear |
 | Start search | type, then Enter | opens the top hit, or searches the web |
 | Start search | a sum, e.g. `12*8+4`, `(2+3)^2/4`, `200*15%` | the answer at the top; tap it to copy |
@@ -74,7 +81,8 @@ new `.apk` and open it, as when installing. Your setup is kept either way.
 - **Click and drag** moves desktop icons, taskbar buttons, Start entries and folder apps without
   holding still first. Widgets still need a hold, so dragging inside one scrolls or slides its own content.
   In Start, scroll with the wheel: dragging an entry picks it up.
-- The **pointer lights up** what it rests on; taskbar buttons show the app's name after a moment.
+- The **pointer lights up** what it rests on; taskbar buttons show the app's name after a moment, or,
+  for a running app (with the helper), previews of its windows, which stay while the pointer is on them.
 - The **wheel** scrolls Start, Customize and folders; tilt it (or a sideways wheel) for the rows of choices.
 - A mouse's back button works as Back.
 
@@ -100,15 +108,17 @@ Start shows a "Recently added" section for apps installed in the last 14 days.
 **Running apps (the helper).** Android doesn't let an app see which other apps are running, but adb
 can. TabDesk pairs with the tablet's own wireless debugging, the way a computer would, and starts a
 small helper process through it. The helper tells TabDesk whenever apps open, move or close, and
-closes one when asked. With it, the taskbar shows the apps that are running (after the pins, which
-get the same mark): a short grey line under a running app, a longer one in the accent colour while
-it's on screen, e.g. in a floating window. Without it, the taskbar shows recently used apps instead.
+closes, minimises, restores and resizes windows when asked. With it, the taskbar shows the apps that
+are running (after the pins, which get the same mark): a short grey line under a running app, a
+longer one in the accent colour while it's on screen, e.g. in a floating window, and a tap minimises
+or restores it (see Floating windows). Without it, the taskbar shows recently used apps instead.
 Customize → **Helper** sets it up in five steps that tick themselves off: Developer options, Wi-Fi,
 Wireless debugging, **Pair** (TabDesk opens Wireless debugging; tap "Pair device with pairing code"
 and type the code into TabDesk's notification, since the code has to stay on screen) and **Allow**.
 Allow has TabDesk grant itself, through adb, what otherwise needs a computer: switching wireless
-debugging on, recently used apps, binding widgets without a prompt, notification dots, and lifting
-Android's restricted-settings block on double-tap to lock. After a restart TabDesk switches wireless
+debugging on, recently used apps, binding widgets without a prompt, notification dots, lifting
+Android's restricted-settings block on double-tap to lock, and drawing over other apps (window
+previews and menus above floating windows; on a tablet set up before that, the helper grants it once). After a restart TabDesk switches wireless
 debugging on, starts the helper and switches it off again (the tile lights up for a few seconds).
 The helper keeps running while USB debugging is on, so TabDesk turns that on too; plugging into a
 computer still asks before that computer can use adb. Everything stays on the tablet: TabDesk only
@@ -236,7 +246,13 @@ adb shell cmd package set-home-activity com.zui.launcher/.drawer.DrawerLauncher
 - `DesktopItem.kt`: what's on the desktop (apps, shortcuts, widgets, folders) and how it's saved
 - `Shell.kt`: taskbar (pins, battery, clock) and Start menu (A–Z list, search, footer)
 - `Widgets.kt`: AppWidgetHost, bind/configure flow, picker
-- `Overlays.kt`: context menus, dialogs, rename prompt
+- `Overlays.kt`: context menus, dialogs, rename prompt; with floating windows on screen they go in a window
+  above them, which takes the keyboard only while a dialog is open
+- `Dock.kt`: the widget dock (widgets and Folder Views in a panel at the right)
+- `FolderView.kt`: Folder Views (a folder's files as an icon, a desktop panel or a dock item), the folder
+  picker, file menus, drag in / out; `FilesProvider.kt` hands one file at a time to the app opening it
+- `Windows.kt`: window management through the helper: taskbar tap to minimise / restore, snapping,
+  Show desktop, window previews
 - `Folders.kt`: desktop folder popup and menu (drop-to-merge lives in `Desktop.kt`)
 - `Search.kt`: calculator and `web:` handling for Start search
 - `Fonts.kt`: Google Fonts download/cache and the font picker
@@ -297,7 +313,18 @@ the tablet's pairing service (see
   which the shell user may do. It registers for task changes (`registerTaskStackListener`, with a plain
   Binder standing in for the hidden listener interface) and pushes the list to TabDesk over a socket on
   127.0.0.1; the port and a random token are passed in environment variables, and a connection that
-  doesn't send the token first is dropped. It only takes `close <task>`, `ping` and `quit`.
+  doesn't send the token first is dropped. It only takes these lines:
+  - `close <task>`: `removeTask`.
+  - `min <task>`: takes a snapshot first (`takeTaskSnapshot`, for the previews), then a
+    `WindowContainerTransaction.reorder(token, false)` through `getWindowOrganizerController()`, as
+    Android's own desktop windowing minimises. The task keeps running, not visible.
+  - `front <task>`: `startActivityFromRecents`, or `moveTaskToFront` (needs only REORDER_TASKS).
+  - `resize <task> l t r b`: `resizeTask`, as `am task resize` does (floating windows only).
+  - `shot <task> <px>`: the window's last snapshot (`getTaskSnapshot`, else `takeTaskSnapshot`), scaled
+    and sent back as a base64 JPEG on one line, off the reading thread.
+  - `ping`, `quit`.
+  Each task in the list also carries its windowing mode, whether it has focus, and its bounds.
+  `tools/emulator/helper.sh tasks|min|front|resize|shot …` runs the same calls from a computer.
 - **Lifetime**: the helper is in adb's process group, so it ends when adb does. adb runs while USB or
   wireless debugging is on, so with USB debugging on, wireless debugging can be switched off again.
   TabDesk replaces a helper left from an older version (it reports a build id), and if the helper
@@ -314,4 +341,25 @@ Lenovo refuses to float some apps ("… does not support floating window"), even
 resizable, such as Claude. Turning on Developer options → **Force activities to be resizable** fixes it
 (this tablet also has **Enable freeform windows** on; both need a reboot to settle).
 Launch options can turn a full-screen window floating, but not a floating one back to full screen,
-which is why TabDesk has no "open full screen" entry.
+which is why TabDesk has no "open full screen" entry. TabDesk offers floating windows when the tablet
+has the feature or Developer options → **Enable freeform windows** is on.
+
+**Managing them (with the helper)**, in `Windows.kt`:
+
+- Floating windows sit above TabDesk's own window, so they cover its menus. While one is on screen,
+  menus and window previews go in a window of their own above apps (`TYPE_APPLICATION_OVERLAY`, "Display
+  over other apps"). Dialogs and anything you type into stay in TabDesk's window.
+- "Display over other apps" comes from Allow in Customize → Helper. A tablet set up before this shows
+  Allow again there. Nothing is granted without that tap.
+- Android's Settings, permission requests and the installer hide other apps' overlays while they're on
+  screen, for safety, and TabDesk isn't told. While one of those is visible, menus and previews go
+  back to TabDesk's window, where a window may cover part of them.
+- Snapping fills half of the screen apart from the taskbar and the status bar: Android keeps floating
+  windows below the status bar even while TabDesk hides it, and moves one placed higher down whole.
+- Android leaves floating windows where they are when the screen turns. Windows TabDesk snapped, and
+  nobody has moved since, are fitted to the new shape (left becomes top, right becomes bottom).
+- "Back to its size" remembers a window's place from before its first snap, until it closes.
+- Show desktop remembers which windows it minimised and brings them back in their order.
+- Tested on emulators: Android 16 (all of it) and Android 12 (the helper's calls; Android 12's floating
+  windows don't draw on a headless emulator). On Android 16, going Home also minimises every floating
+  window, and a floating window can cover the taskbar.

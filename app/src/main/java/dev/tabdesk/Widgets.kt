@@ -141,10 +141,11 @@ class Widgets(private val act: HomeActivity) {
 
     // ------------------------------------------------------------ add flow: allocate → bind → configure → place
 
-    fun begin(provider: AppWidgetProviderInfo, cell: IntArray?) {
+    fun begin(provider: AppWidgetProviderInfo, cell: IntArray?, toDock: Boolean = false) {
         val id = host.allocateAppWidgetId()
         Prefs.pendingWidget = id
         Prefs.pendingCell = cell
+        Prefs.pendingDock = toDock
         val ok = try { mgr.bindAppWidgetIdIfAllowed(id, provider.profile, provider.provider, null) } catch (e: Exception) { false }
         if (ok) afterBind(id)
         else act.startActivityForResult(
@@ -176,18 +177,19 @@ class Widgets(private val act: HomeActivity) {
         val info = mgr.getAppWidgetInfo(id) ?: return cancel(id)
         val (sx, sy) = spansFor(info)
         val cell = Prefs.pendingCell
-        Prefs.pendingWidget = -1; Prefs.pendingCell = null
-        act.desktop.addWidget(id, sx, sy, cell)
+        val toDock = Prefs.pendingDock
+        Prefs.pendingWidget = -1; Prefs.pendingCell = null; Prefs.pendingDock = false
+        if (toDock) act.dock.addWidget(id) else act.desktop.addWidget(id, sx, sy, cell)
     }
 
     private fun cancel(id: Int) {
         delete(id)
-        Prefs.pendingWidget = -1; Prefs.pendingCell = null
+        Prefs.pendingWidget = -1; Prefs.pendingCell = null; Prefs.pendingDock = false
     }
 
     // ------------------------------------------------------------ picker
 
-    fun showPicker(cell: IntArray?) {
+    fun showPicker(cell: IntArray?, toDock: Boolean = false) {
         val pal = act.pal
         val pm = act.packageManager
         val providers = mgr.getInstalledProvidersForProfile(Process.myUserHandle())
@@ -200,7 +202,7 @@ class Widgets(private val act: HomeActivity) {
             }
             .sortedWith { a, b -> collator.compare(a.second, b.second) }
 
-        val card = act.overlays.dialogCard(act.dp(520), "Add a widget")
+        val card = act.overlays.dialogCard(act.dp(520), if (toDock) "Add a widget to the dock" else "Add a widget")
         val content = linear(act, true) { setPadding(0, 0, 0, act.dp(8)) }
         if (groups.isEmpty()) content.addView(TextView(act).label(pal.textDim, 14f).apply { text = "No widgets installed."; setPadding(act.dp(8), act.dp(16), act.dp(8), act.dp(16)) })
         lateinit var layer: Overlays.Layer
@@ -222,7 +224,7 @@ class Widgets(private val act: HomeActivity) {
                 text.addView(TextView(act).label(pal.text, 15f).apply { this.text = p.loadLabel(pm); maxLines = 2; ellipsize = TextUtils.TruncateAt.END })
                 text.addView(TextView(act).label(pal.textDim, 12.5f).apply { this.text = "$sx × $sy" + (p.loadDescription(act)?.let { "  ·  $it" } ?: ""); maxLines = 2; ellipsize = TextUtils.TruncateAt.END })
                 row.addView(text, llp(0, WRAP, 1f))
-                row.setOnClickListener { act.overlays.dismiss(layer); begin(p, cell) }
+                row.setOnClickListener { act.overlays.dismiss(layer); begin(p, cell, toDock) }
                 content.addView(row, llp(MATCH, WRAP).apply { bottomMargin = act.dp(6) })
                 loadPreview(p, preview)
             }
