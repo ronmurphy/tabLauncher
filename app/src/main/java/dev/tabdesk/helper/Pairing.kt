@@ -157,6 +157,7 @@ internal object Pairing {
                     post(app, "TabDesk is paired", "You can close Settings now.", withReply = false, ongoing = false)
                     Setup.changed()
                 }
+                Adb.notePort(app)   // while wireless debugging's announcement is fresh (Android 12 may drop it soon)
             } catch (e: AdbPairing.WrongCode) {
                 main.post { busy = false; askForCode(app, "That code didn't match") }
             } catch (e: Exception) {

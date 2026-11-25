@@ -6,6 +6,9 @@ import android.content.pm.PackageManager
 import android.os.SystemClock
 import android.provider.Settings
 import android.util.Log
+import java.io.File
+import java.security.PrivateKey
+import java.security.cert.X509Certificate
 
 /** Running shell commands through this tablet's own wireless debugging, with TabDesk's paired key. */
 internal object Adb {
@@ -39,11 +42,8 @@ internal object Adb {
             Log.i(TAG, "switched wireless debugging on")
         }
         try {
-            // Just switched on, it takes a moment to start advertising.
-            val port = findAdbPort(ctx, timeoutMs = if (wasOn) 6000 else 15_000) { Log.i(TAG, it) }
-                ?: throw Problem(if (wasOn) "Couldn't find wireless debugging on Wi-Fi" else "Wireless debugging didn't start (is Wi-Fi on?)")
             val t = SystemClock.elapsedRealtime()
-            return AdbLink.connect(port, key, cert).use { link ->
+            return open(ctx, key, cert, justSwitchedOn = !wasOn).use { link ->
                 Log.i(TAG, "connected in ${SystemClock.elapsedRealtime() - t} ms")
                 block(link)
             }
@@ -51,5 +51,39 @@ internal object Adb {
             // Switching it off stops adb altogether unless USB debugging is on, which would end the helper too.
             if (!wasOn && restore && usbOn(ctx)) { setWireless(ctx, false); Log.i(TAG, "switched wireless debugging back off") }
         }
+    }
+
+    /**
+     * Connects to wireless debugging: at the port it had last time (it only changes when wireless debugging is
+     * switched off and on), else wherever it's announced on Wi-Fi.
+     */
+    private fun open(ctx: Context, key: PrivateKey, cert: X509Certificate, justSwitchedOn: Boolean): AdbLink {
+        if (!justSwitchedOn) savedPort(ctx)?.let { p ->
+            try { return AdbLink.connect(p, key, cert) } catch (e: Exception) { Log.i(TAG, "port $p no longer answers") }
+        }
+        // Just switched on, it takes a moment to start announcing itself.
+        var port = findAdbPort(ctx, timeoutMs = if (justSwitchedOn) 15_000 else 6000) { Log.i(TAG, it) }
+        if (port == null && !justSwitchedOn && canSwitch(ctx)) {
+            // Android 12 drops the announcement when its mDNS service stops (10 s after no app is looking);
+            // switching wireless debugging off and on announces it again.
+            Log.i(TAG, "not announced: switching wireless debugging off and on")
+            setWireless(ctx, false); Thread.sleep(1500); setWireless(ctx, true)
+            port = findAdbPort(ctx, timeoutMs = 15_000) { Log.i(TAG, it) }
+        }
+        port ?: throw Problem(when {
+            justSwitchedOn -> "Wireless debugging didn't start (is Wi-Fi on?)"
+            else -> "Couldn’t find wireless debugging. Switch Use wireless debugging off and on again, then try once more"
+        })
+        rememberPort(ctx, port)
+        return AdbLink.connect(port, key, cert)
+    }
+
+    /** Finds wireless debugging's port while its announcement is fresh (just after pairing) and remembers it. */
+    fun notePort(ctx: Context) { findAdbPort(ctx, timeoutMs = 4000) { Log.i(TAG, it) }?.let { rememberPort(ctx, it) } }
+
+    private fun portFile(ctx: Context) = File(ctx.noBackupFilesDir, "adb/port")
+    private fun savedPort(ctx: Context): Int? = try { portFile(ctx).readText().trim().toInt() } catch (_: Exception) { null }
+    private fun rememberPort(ctx: Context, port: Int) {
+        try { portFile(ctx).apply { parentFile?.mkdirs() }.writeText("$port") } catch (_: Exception) {}
     }
 }

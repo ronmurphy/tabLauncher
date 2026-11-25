@@ -18,6 +18,7 @@ import android.graphics.Insets
 import android.graphics.Rect
 import android.net.Uri
 import android.os.BatteryManager
+import android.os.Build
 import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
@@ -96,8 +97,11 @@ class HomeActivity : Activity() {
         HelperClient.listeners += setupListener
         HelperClient.listeners += tasksListener
         if (Setup.ready(this)) HelperClient.ensure(this)
+        if (intent?.action == WelcomeActivity.ACTION_CUSTOMIZE) root.post { showSettings() }
         Apps.load()
-        onBackInvokedDispatcher.registerOnBackInvokedCallback(OnBackInvokedDispatcher.PRIORITY_DEFAULT) { handleBack() }
+        // Android 13 and later; Android 12 calls onBackPressed instead.
+        if (Build.VERSION.SDK_INT >= 33)
+            onBackInvokedDispatcher.registerOnBackInvokedCallback(OnBackInvokedDispatcher.PRIORITY_DEFAULT) { handleBack() }
         WallpaperManager.getInstance(this).addOnColorsChangedListener(wallpaperListener, main)
     }
 
@@ -142,6 +146,11 @@ class HomeActivity : Activity() {
         if (intent.action == android.service.quicksettings.TileService.ACTION_QS_TILE_PREFERENCES) {
             overlays.dismissAll(); closeStart(false)
             root.post { Customize.show(this, restoreScroll = false, tab = Customize.SYSTEM) }
+            return
+        }
+        if (intent.action == WelcomeActivity.ACTION_CUSTOMIZE) {   // TabDesk's app icon
+            overlays.dismissAll()
+            root.post { showSettings() }
             return
         }
         if (intent.action == Intent.ACTION_MAIN) {
@@ -308,6 +317,11 @@ class HomeActivity : Activity() {
     /** Tap on empty desktop. */
     fun closeTransient() {
         if (!desktop.endResize()) closeStart()
+    }
+
+    @Deprecated("Android 12's Back; 13 and later use the callback registered in onCreate")
+    override fun onBackPressed() {
+        if (Build.VERSION.SDK_INT < 33) handleBack() else @Suppress("DEPRECATION") super.onBackPressed()
     }
 
     private fun handleBack() {

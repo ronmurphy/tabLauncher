@@ -21,6 +21,20 @@ Coordinates assume this tablet in landscape (1340×800 as adb sees it).
 
 Run them from bash (zsh doesn't split `$var` into words the way these expect).
 
+## emulator/: testing a fresh install in Android's emulator
+
+Two emulators are set up (in `~/.android/avd`): `TabDesk_A16` (Android 16 with Play Store, at the OnePlus Pad's
+2800 × 2000) and `TabDesk_A12` (Android 12, the oldest TabDesk supports). Start one without a window, then drive
+it over adb as `emulator-5554`:
+
+    ~/Android/Sdk/emulator/emulator -avd TabDesk_A16 -no-window -no-boot-anim -no-audio -gpu swiftshader_indirect -no-snapshot-save &
+    adb -s emulator-5554 install app/build/outputs/apk/release/app-release.apk
+    tools/emulator/shot.sh /tmp/shot.png        # half-size screenshot: tap at twice what you see
+    tools/emulator/find.sh "Build number"       # where some text is on screen, in real pixels
+    adb -s emulator-5554 emu kill               # shut it down (its data is kept)
+
+Before a release, `./gradlew lintDebug` also catches calls that need a newer Android than 12.
+
 ## fonts/: making the bundled Material Symbols font
 
 `app/src/main/assets/symbols.ttf` and `symbols.txt` come from Google's Material Symbols Rounded

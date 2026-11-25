@@ -3,6 +3,7 @@
 A small desktop-style home screen for Android tablets: a desktop with icons, folders and widgets, a
 taskbar, and a Start menu. Built on a Lenovo Tab One (TB305FU, Android 15); it needs Android 12 or later.
 Plain Kotlin + framework Views (no AndroidX, no Compose).
+The release APK is about 1 MB (mostly the bundled Material Symbols font), and it uses about 50 MB PSS at idle; the optional helper process about 50 MB more.
 
 ## Install
 
@@ -13,13 +14,15 @@ Plain Kotlin + framework Views (no AndroidX, no Compose).
    **Install**.
 3. If Play Protect says it doesn't recognise the app, tap **More details** → **Install anyway**. TabDesk
    isn't on the Play Store, so Google hasn't seen it before.
-4. Make it your home screen: press the Home button and choose **TabDesk** → **Always**, or open TabDesk,
-   long-press the ◉ button at the bottom left, and use **Screen & system** → **Make default**.
-5. Optional, to have the taskbar show the apps that are running: long-press ◉ → **Helper**, and follow
-   the steps. It takes a few minutes, once.
+4. Tap **Open** when it has installed (or TabDesk's icon among your apps). Android asks "Set TabDesk as
+   your default home app?": choose **TabDesk**, then **Set as default**.
+5. Optional, to have the taskbar show the apps that are running: open TabDesk's icon again (once TabDesk is
+   your home app, it opens Customize), go to **Helper**, and follow the steps. It takes a few minutes, once.
+   On OnePlus, Oppo, realme and Xiaomi tablets there's one extra switch, and the page says where.
 
 **Updating:** download the new `.apk` and open it the same way. Your setup is kept.
-**Going back:** Settings → Apps → Default apps → Home app, and pick the one you had. The release APK is about 1 MB (mostly the bundled Material Symbols font), and it uses about 50 MB PSS at idle; the optional helper process about 50 MB more.
+
+**Going back:** Settings → Apps → Default apps → Home app, and pick the one you had.
 
 ## Using it
 
@@ -208,6 +211,12 @@ debug key. Copies installed before the release key existed were signed with the 
 (APK Signature Scheme v3 rotation), so those update in place and keep their setup. The build signs the
 APK again with it (`signReleaseWithLineage` in `app/build.gradle.kts`).
 
+**Releasing.** `./release.sh 1.0.2` does a whole release: it sets the version (the version code follows from it),
+builds, checks the APK is signed with TabDesk's key and that lint finds nothing that needs a newer Android than
+12, shows the release notes (the commits since the last release, or `./release.sh 1.0.2 notes.md`) and asks
+before it commits, tags, pushes, publishes the GitHub release with `TabDesk-1.0.2.apk` attached, and checks
+the download. Commit the work itself first, so the release commit is just the version.
+
 ### Go back to the Lenovo launcher
 
 ```sh
@@ -230,6 +239,7 @@ adb shell cmd package set-home-activity com.zui.launcher/.drawer.DrawerLauncher
 - `Screen.kt`: screen timeout and the Keep awake quick settings tile
 - `Prefs.kt`: every setting, and turning them into / out of a backup
 - `Apps.kt`: installed apps and their drawn icons, recently used apps, notification-dot state
+- `WelcomeActivity.kt`: TabDesk's app icon: asks to become the home app after installing; afterwards opens Customize
 - `Services.kt`: notification-dot listener, double-tap-to-lock accessibility helper, "Add to Home screen" shortcut handler
 - `Ui.kt`: palette, drawn line icons, icon view, gesture helper, drag shadows, battery view
 
@@ -243,8 +253,10 @@ adb shell cmd package set-home-activity com.zui.launcher/.drawer.DrawerLauncher
 - `AdbLink.kt`: a minimal adb client (TLS with TabDesk's key, then adb's messages, enough for shell commands), TabDesk's key, and finding the wireless-debugging port with network service discovery
 - `AdbPairing.kt`: pairing with a 6-digit code: TLS, SPAKE2 (BoringSSL's, in plain Kotlin) and the encrypted key exchange; making TabDesk's key and certificate
 - `Pairing.kt`: the pairing notification (watches for the pairing service, takes the code)
-- `Setup.kt`: the setup steps' state and buttons, and the grants behind Allow
-- `Adb.kt`: running commands through wireless debugging, switching it on for the moment if it's off
+- `Setup.kt`: the setup steps' state and buttons, the grants behind Allow, and Copy details
+- `Device.kt`: which maker's Android this is (OxygenOS, HyperOS, One UI, ZUI…), for maker-specific steps
+- `Adb.kt`: running commands through wireless debugging, switching it on for the moment if it's off, and
+  remembering its port (Android 12 stops announcing it soon after pairing)
 - `Helper.kt`: the helper itself, run as the shell user with `app_process`: watches tasks, serves TabDesk on 127.0.0.1
 - `HelperClient.kt`: TabDesk's side: starts the helper (at startup, after a restart, when a new version is installed), stays connected, and passes on the running tasks
 

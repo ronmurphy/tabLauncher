@@ -56,6 +56,19 @@
             </intent-filter>
         </activity>
 
+        <!-- The app icon: asks to become the home app (home apps have no icon otherwise); after that, opens Customize. -->
+        <activity
+            android:name=".WelcomeActivity"
+            android:exported="true"
+            android:excludeFromRecents="true"
+            android:taskAffinity="dev.tabdesk.welcome"
+            android:theme="@android:style/Theme.Translucent.NoTitleBar">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+        </activity>
+
         <!-- Accepts "Add to Home screen" shortcut requests (e.g. from Chrome). -->
         <activity
             android:name=".PinActivity"

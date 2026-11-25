@@ -1,5 +1,7 @@
 package dev.tabdesk.customize
 
+import android.content.ClipData
+import android.content.ClipboardManager
 import android.content.Intent
 import android.provider.Settings
 import android.view.Gravity
@@ -7,6 +9,7 @@ import android.widget.FrameLayout
 import android.widget.ImageView
 import android.widget.TextView
 import dev.tabdesk.*
+import dev.tabdesk.helper.Device
 import dev.tabdesk.helper.HelperClient
 import dev.tabdesk.helper.Pairing
 import dev.tabdesk.helper.Setup
@@ -26,7 +29,8 @@ internal fun Page.helper() {
         act.safeStart(Intent(Settings.ACTION_WIFI_SETTINGS))
     }
     step(3, s.wireless, "Turn on Wireless debugging",
-        "Tap Open and switch on Use wireless debugging. If Android asks, allow it on this network.", "Open") {
+        "Tap Open and switch on Use wireless debugging. When Android asks, tick “Always allow on this network”, " +
+            "then tap Allow: TabDesk needs that to switch it on by itself later.", "Open") {
         Setup.openWirelessDebugging(act)
     }
     val pairHow = if (Pairing.active)
@@ -34,16 +38,22 @@ internal fun Page.helper() {
             "TabDesk’s notification and type the code into it."
     else "Tap Pair. In Wireless debugging, tap “Pair device with pairing code”, then pull down " +
         "TabDesk’s notification and type the code into it."
-    step(4, s.paired, "Pair TabDesk", if (s.paired) "TabDesk is paired. It shows as “TabDesk” under Paired devices." else pairHow,
+    var n = 4
+    step(n++, s.paired, "Pair TabDesk", if (s.paired) "TabDesk is paired. It shows as “TabDesk” under Paired devices." else pairHow,
         if (s.paired) "Pair again" else "Pair", always = true) { Setup.pair(act) }
-    step(5, s.finished, "Let TabDesk finish setting up",
-        if (s.finished) "Done. TabDesk can switch wireless debugging on by itself when it needs it."
+    // Some makers' Android needs one more switch before it lets wireless debugging grant permissions.
+    Setup.extraStep()?.let { x ->
+        step(n++, s.finished, x.title, x.how, "Open") { Setup.openDeveloperOptions(act) }
+    }
+    step(n, s.finished, "Let TabDesk finish setting up",
+        if (s.finished) "Done. TabDesk can switch wireless debugging on by itself when it needs it." +
+            (Setup.skipped.takeIf { it.isNotEmpty() }?.let { "\nThis tablet didn’t allow: ${it.joinToString(", ")}." } ?: "")
         else "Tap Allow to let TabDesk, through wireless debugging:\n" +
             "• switch wireless debugging on by itself, e.g. after a restart\n" +
             "• show your recently used apps on the taskbar\n" +
             "• add widgets without asking each time\n" +
             "• show notification dots on apps\n" +
-            "• let you turn on double-tap to lock in Accessibility settings\n" +
+            (if (android.os.Build.VERSION.SDK_INT >= 33) "• let you turn on double-tap to lock in Accessibility settings\n" else "") +
             "TabDesk also keeps USB debugging on, so the helper keeps running when wireless debugging is off." +
             (Setup.problem?.let { "\n\nThat didn't work: $it." } ?: ""),
         if (Setup.finishing) "Working…" else "Allow", enabled = s.paired) { Setup.finish(act) }
@@ -59,6 +69,14 @@ internal fun Page.helper() {
                 act.overlays.button("Start", true) { HelperClient.ensure(act) })
         }
     }
+
+    section("This tablet")
+    noteWithButton(Device.summary + ". If setting up doesn’t work, copy the details and send them to whoever helps you.",
+        act.overlays.button("Copy details", false) {
+            act.getSystemService(ClipboardManager::class.java)
+                .setPrimaryClip(ClipData.newPlainText("TabDesk setup details", Setup.details(act)))
+            if (android.os.Build.VERSION.SDK_INT < 33) act.toast("Copied")   // newer Android shows its own
+        })
 }
 
 /** One setup step: its number (a tick once done), what to do, and the button that starts it. */
