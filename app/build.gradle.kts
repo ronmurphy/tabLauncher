@@ -21,7 +21,7 @@ android {
         minSdk = 31
         targetSdk = 35
         // Bump for each release. Android needs a number that only goes up: 1.2.3 → 10203.
-        versionName = "1.0.0"
+        versionName = "1.0.1"
         versionCode = versionName!!.split(".").map { it.toInt() }.let { (a, b, c) -> a * 10000 + b * 100 + c }
     }
 
