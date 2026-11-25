@@ -14,8 +14,12 @@
     <!-- Screen timeout in Customize and the Keep awake tile ("Modify system settings", granted by the user). -->
     <uses-permission android:name="android.permission.WRITE_SETTINGS"
         tools:ignore="ProtectedPermissions" />
-    <!-- Running apps on the taskbar: TabDesk talks to the tablet's own wireless debugging (on 127.0.0.1). -->
+    <!-- Running apps on the taskbar: TabDesk talks to the tablet's own wireless debugging (on 127.0.0.1).
+         Also checking GitHub for a newer TabDesk and downloading it. -->
     <uses-permission android:name="android.permission.INTERNET" />
+    <!-- Installing TabDesk's own updates (Customize → About), the second without asking each time. -->
+    <uses-permission android:name="android.permission.REQUEST_INSTALL_PACKAGES" />
+    <uses-permission android:name="android.permission.UPDATE_PACKAGES_WITHOUT_USER_ACTION" />
     <!-- The helper's setup checks that Wi-Fi is connected (wireless debugging needs it). -->
     <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
     <!-- Pairing with wireless debugging: the code is typed into TabDesk's notification. -->
@@ -111,6 +115,18 @@
         <receiver
             android:name=".helper.PairCodeReceiver"
             android:exported="false" />
+        <!-- Android's answer when TabDesk installs its own update. -->
+        <receiver
+            android:name=".UpdateReceiver"
+            android:exported="false" />
+        <!-- After TabDesk's own update: back to the front if Android showed another home screen meanwhile. -->
+        <receiver
+            android:name=".UpdatedReceiver"
+            android:exported="false">
+            <intent-filter>
+                <action android:name="android.intent.action.MY_PACKAGE_REPLACED" />
+            </intent-filter>
+        </receiver>
         <!-- Optional: double-tap the desktop to lock. Enabled by the user in Accessibility settings. -->
         <service
             android:name=".LockService"

@@ -31,6 +31,25 @@ import android.widget.Toast
 import android.window.OnBackInvokedDispatcher
 
 class HomeActivity : Activity() {
+    companion object {
+        private const val EXTRA_CUSTOMIZE = "dev.tabdesk.customize"
+
+        /**
+         * Opens TabDesk with Customize showing ([tab], or where it was last). It's a Home intent, so TabDesk opens as
+         * the home screen even when it isn't running; started directly, it would be an ordinary app on top of the
+         * home screen, and gone after an update.
+         */
+        fun customizeIntent(ctx: Context, tab: Int = -1): Intent = homeIntent(ctx).putExtra(EXTRA_CUSTOMIZE, tab)
+
+        /** TabDesk as the home screen. */
+        fun homeIntent(ctx: Context): Intent = Intent(Intent.ACTION_MAIN).addCategory(Intent.CATEGORY_HOME)
+            .setPackage(ctx.packageName).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+
+        /** TabDesk's home screen is in front (resumed). */
+        @Volatile var inFront = false
+            private set
+    }
+
     lateinit var pal: Palette; private set
     lateinit var root: FrameLayout; private set
     lateinit var desktop: DesktopLayout; private set
@@ -52,6 +71,7 @@ class HomeActivity : Activity() {
     private val badgeListener: () -> Unit = { onBadgesChanged() }
     private val setupListener: () -> Unit = { Customize.refreshIf(this, Customize.HELPER) }
     private val tasksListener: () -> Unit = { taskbar.bindRecents(); taskbar.bindHelper() }
+    private val updatesListener: () -> Unit = { Customize.refreshIf(this, Customize.ABOUT) }
 
     private val batteryReceiver = object : BroadcastReceiver() {
         override fun onReceive(c: Context, i: Intent) {
@@ -97,7 +117,9 @@ class HomeActivity : Activity() {
         HelperClient.listeners += setupListener
         HelperClient.listeners += tasksListener
         if (Setup.ready(this)) HelperClient.ensure(this)
-        if (intent?.action == WelcomeActivity.ACTION_CUSTOMIZE) root.post { showSettings() }
+        Updates.onChange = updatesListener
+        Updates.afterStart(this)
+        customizeTab(intent)?.let { tab -> root.post { showSettings(tab.takeIf { it >= 0 }) } }
         Apps.load()
         // Android 13 and later; Android 12 calls onBackPressed instead.
         if (Build.VERSION.SDK_INT >= 33)
@@ -114,15 +136,18 @@ class HomeActivity : Activity() {
     override fun onResume() {
         super.onResume()
         isResumedNow = true
+        inFront = true
         if (Prefs.desktopRev != desktopRev) { desktopRev = Prefs.desktopRev; desktop.reload() }
         ensureFont()
         Recents.refresh(this) { taskbar.bindRecents() }
         Customize.refreshIf(this, Customize.HELPER)
+        Updates.resumed(this)
     }
 
     override fun onPause() {
         super.onPause()
         isResumedNow = false
+        inFront = false
     }
 
     override fun onStop() {
@@ -133,6 +158,7 @@ class HomeActivity : Activity() {
 
     override fun onDestroy() {
         if (Setup.onChange === setupListener) Setup.onChange = null
+        if (Updates.onChange === updatesListener) Updates.onChange = null
         HelperClient.listeners -= setupListener
         HelperClient.listeners -= tasksListener
         Apps.listeners -= appsListener
@@ -148,9 +174,9 @@ class HomeActivity : Activity() {
             root.post { Customize.show(this, restoreScroll = false, tab = Customize.SYSTEM) }
             return
         }
-        if (intent.action == WelcomeActivity.ACTION_CUSTOMIZE) {   // TabDesk's app icon
+        customizeTab(intent)?.let { tab ->   // TabDesk's app icon, or the "new version" notification
             overlays.dismissAll()
-            root.post { showSettings() }
+            root.post { showSettings(tab.takeIf { it >= 0 }) }
             return
         }
         if (intent.action == Intent.ACTION_MAIN) {
@@ -459,6 +485,10 @@ class HomeActivity : Activity() {
 
     /** Redraw Customize where it was scrolled to (e.g. after a permission or tile was granted). */
     fun refreshSettings() { overlays.dismissAll(); root.post { Customize.show(this, restoreScroll = true) } }
+
+    /** The Customize tab an intent from [customizeIntent] asks for (-1: where it was last), or null if it doesn't. */
+    private fun customizeTab(intent: Intent?): Int? =
+        intent?.takeIf { it.hasExtra(EXTRA_CUSTOMIZE) }?.getIntExtra(EXTRA_CUSTOMIZE, -1)
 
     fun showSettings(tab: Int? = null) { closeStart(false); Customize.show(this, restoreScroll = false, tab = tab) }
 

@@ -14,7 +14,7 @@ import dev.tabdesk.*
 
 /** Customize: the panel of tabs (long-press or right-click Start). Each tab is built by a Page extension in its own file. */
 object Customize {
-    const val LOOK = 0; const val ICONS = 1; const val DESKTOP = 2; const val TASKBAR = 3; const val SYSTEM = 4; const val HELPER = 5; const val BACKUP = 6
+    const val LOOK = 0; const val ICONS = 1; const val DESKTOP = 2; const val TASKBAR = 3; const val SYSTEM = 4; const val HELPER = 5; const val BACKUP = 6; const val ABOUT = 7
 
     private class Tab(val title: String, val glyph: Int, val build: Page.() -> Unit)
 
@@ -26,6 +26,7 @@ object Customize {
         Tab("Screen & system", G.MONITOR) { system() },
         Tab("Helper", G.WINDOW) { helper() },
         Tab("Backup", G.SAVE) { backup() },
+        Tab("About", G.INFO) { about() },
     )
 
     /** Tab and scroll position to come back to (e.g. after a theme change rebuilds everything). */

@@ -12,15 +12,20 @@ The release APK is about 1 MB (mostly the bundled Material Symbols font), and it
 2. Open it (from the download notification, or Files → Downloads). The first time, Android asks to let
    your browser install apps: tap **Settings**, switch on **Allow from this source**, go back, and tap
    **Install**.
-3. If Play Protect says it doesn't recognise the app, tap **More details** → **Install anyway**. TabDesk
-   isn't on the Play Store, so Google hasn't seen it before.
+3. If Play Protect steps in, it's because TabDesk isn't on the Play Store, so Google hasn't seen it before.
+   If it recommends a scan, tap **Scan app**, then **Install** once it says the app looks safe. If it says it
+   doesn't recognise the app, tap **More details** → **Install anyway**.
 4. Tap **Open** when it has installed (or TabDesk's icon among your apps). Android asks "Set TabDesk as
    your default home app?": choose **TabDesk**, then **Set as default**.
 5. Optional, to have the taskbar show the apps that are running: open TabDesk's icon again (once TabDesk is
    your home app, it opens Customize), go to **Helper**, and follow the steps. It takes a few minutes, once.
    On OnePlus, Oppo, realme and Xiaomi tablets there's one extra switch, and the page says where.
 
-**Updating:** download the new `.apk` and open it the same way. Your setup is kept.
+**Updating:** once a day TabDesk asks GitHub whether there's a new version, and the Start menu says when
+there is: tap that, then **Update** (or Customize → About → **Check for updates**). The first time, Android
+asks you to switch on **Allow from this source** for TabDesk; with the helper set up, TabDesk does that
+itself. Play Protect may ask to scan it, as above. Versions 1.0.1 and older can't do this yet: download the
+new `.apk` and open it, as when installing. Your setup is kept either way.
 
 **Going back:** Settings → Apps → Default apps → Home app, and pick the one you had.
 
@@ -236,6 +241,8 @@ adb shell cmd package set-home-activity com.zui.launcher/.drawer.DrawerLauncher
 - `Search.kt`: calculator and `web:` handling for Start search
 - `Fonts.kt`: Google Fonts download/cache and the font picker
 - `Backup.kt`: export, import (with confirm) and undo of the whole setup
+- `Updates.kt`: checking GitHub for a newer release, downloading and checking its APK, and installing it
+  (an app may update itself without asking on Android 12 and later); coming back to the front afterwards
 - `Screen.kt`: screen timeout and the Keep awake quick settings tile
 - `Prefs.kt`: every setting, and turning them into / out of a backup
 - `Apps.kt`: installed apps and their drawn icons, recently used apps, notification-dot state
@@ -246,7 +253,7 @@ adb shell cmd package set-home-activity com.zui.launcher/.drawer.DrawerLauncher
 `customize/`: the Customize panel (long-press or right-click Start)
 
 - `Customize.kt`: the panel itself (tabs down the side or across the top, remembering tab and scroll) and the shared rows (sections, notes, sliders, switches)
-- `LookPage.kt`, `IconsPage.kt`, `DesktopPage.kt`, `TaskbarPage.kt`, `SystemPage.kt`, `HelperPage.kt`, `BackupPage.kt`: one file per tab
+- `LookPage.kt`, `IconsPage.kt`, `DesktopPage.kt`, `TaskbarPage.kt`, `SystemPage.kt`, `HelperPage.kt`, `BackupPage.kt`, `AboutPage.kt`: one file per tab
 
 `helper/`: the running-apps helper
 

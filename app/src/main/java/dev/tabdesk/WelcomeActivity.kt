@@ -13,10 +13,7 @@ import android.widget.Toast
  * the home app, then goes home. Once TabDesk is the home app, the icon opens Customize instead.
  */
 class WelcomeActivity : Activity() {
-    companion object {
-        const val ACTION_CUSTOMIZE = "dev.tabdesk.action.CUSTOMIZE"
-        private const val REQ_HOME = 1
-    }
+    companion object { private const val REQ_HOME = 1 }
 
     private val roles by lazy { getSystemService(RoleManager::class.java) }
 
@@ -24,7 +21,7 @@ class WelcomeActivity : Activity() {
         super.onCreate(savedInstanceState)
         if (savedInstanceState != null) return   // re-created while Android's question is showing: wait for its answer
         if (roles.isRoleHeld(RoleManager.ROLE_HOME)) {
-            startActivity(Intent(this, HomeActivity::class.java).setAction(ACTION_CUSTOMIZE).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
+            startActivity(HomeActivity.customizeIntent(this))
             finish()
             return
         }

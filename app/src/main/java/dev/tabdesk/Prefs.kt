@@ -118,9 +118,26 @@ object Prefs {
         get() = sp.getString("lastBackup", null)
         set(v) = sp.edit().putString("lastBackup", v).apply()
 
+    /** Check GitHub once a day for a newer TabDesk. */
+    var autoUpdates: Boolean
+        get() = sp.getBoolean("autoUpdates", true)
+        set(v) = sp.edit().putBoolean("autoUpdates", v).apply()
+    /** When TabDesk last asked GitHub for its newest version. */
+    var updateChecked: Long
+        get() = sp.getLong("updateChecked", 0)
+        set(v) = sp.edit().putLong("updateChecked", v).apply()
+    /** The newest version the user has been told about, so each is only announced once. */
+    var updateNotified: String?
+        get() = sp.getString("updateNotified", null)
+        set(v) = sp.edit().putString("updateNotified", v).apply()
+    /** The version being installed, to say so once TabDesk restarts as it. Written at once: installing ends TabDesk. */
+    var updatingTo: String?
+        get() = sp.getString("updatingTo", null)
+        set(v) { sp.edit().putString("updatingTo", v).commit() }
+
     // ---- backup: everything in Customize plus pins, renames, hidden apps (the desktop is saved separately)
     private val backupInts = listOf("theme", "accent", "iconDp", "cellDp", "taskbarDp", "iconStyle")
-    private val backupBools = listOf("dots", "labels", "hideStatus", "doubleTapLock", "recents")
+    private val backupBools = listOf("dots", "labels", "hideStatus", "doubleTapLock", "recents", "autoUpdates")
     private val backupLists = listOf("pins", "floatApps", "removedAdded")
 
     fun exportSettings(): JSONObject = JSONObject().apply {

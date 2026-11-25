@@ -319,6 +319,8 @@ class StartMenu(private val act: HomeActivity) : LinearLayout(act) {
     private val list = ListView(act)
     private val adapter = Adapter()
     var isOpen = false; private set
+    /** "TabDesk x.y.z is available", when the daily check found a new version. */
+    private val updateRow = TextView(act)
 
     private sealed class Row {
         class H(val letter: String) : Row()
@@ -389,6 +391,13 @@ class StartMenu(private val act: HomeActivity) : LinearLayout(act) {
         }
         addView(list, llp(MATCH, 0, 1f))
 
+        updateRow.label(pal.text, 13f, bold = true).apply {
+            gravity = Gravity.CENTER_VERTICAL; setPadding(dp(14), 0, dp(14), 0)
+            background = rippleBg(pal.ripple, dpf(12), pal.accentSoft); visibility = GONE
+            setOnClickListener { act.showSettings(Customize.ABOUT) }
+        }
+        addView(updateRow, llp(MATCH, dp(40)).apply { setMargins(dp(4), dp(4), dp(4), dp(8)) })
+
         // footer
         addView(View(act).apply { setBackgroundColor(pal.divider) }, llp(MATCH, 1))
         val footer = linear(act, false) { gravity = Gravity.CENTER_VERTICAL; setPadding(0, dp(6), 0, 0) }
@@ -421,6 +430,9 @@ class StartMenu(private val act: HomeActivity) : LinearLayout(act) {
     fun open() {
         isOpen = true
         letter = null
+        val update = Updates.available
+        updateRow.visibility = if (update != null) VISIBLE else GONE
+        if (update != null) updateRow.text = "TabDesk ${update.version} is available · Update"
         search.setText("")
         refresh()
         list.setSelection(0)
