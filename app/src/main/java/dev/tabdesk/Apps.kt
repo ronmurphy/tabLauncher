@@ -80,7 +80,8 @@ object Apps {
         exec.execute {
             val roles = if (spec.style != Icons.ORIGINAL) Icons.roles(appCtx, refresh = true) else emptyMap()
             val list = la.getActivityList(null, Process.myUserHandle())
-                .filter { it.componentName.packageName != appCtx.packageName }
+                // TabDesk's own entries aren't apps to launch from here, apart from TabDesk Files.
+                .filter { it.componentName.packageName != appCtx.packageName || it.componentName.className == FilesActivity::class.java.name }
                 .map { info(it, size, spec, roles) }
             main.post {
                 if (my != seq) return@post

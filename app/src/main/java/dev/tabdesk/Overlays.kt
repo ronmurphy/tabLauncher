@@ -37,7 +37,7 @@ class MenuEntry(
 }
 
 /** Topmost layer: context menus and dialogs, each with its own tap-outside-to-close scrim. */
-class Overlays(private val act: HomeActivity) : FrameLayout(act) {
+class Overlays(private val act: TabActivity) : FrameLayout(act) {
     private val stack = ArrayList<Layer>()
     private var bars: Insets = Insets.NONE
     private var ime = 0
@@ -128,7 +128,7 @@ class Overlays(private val act: HomeActivity) : FrameLayout(act) {
 
     private fun aboveHost(): FrameLayout? {
         above?.let { return it }
-        if (!Windows.covering(act)) return null
+        if (!act.coveredByWindows) return null
         val host = object : FrameLayout(act) {
             // Back closes the top layer here, as it does in TabDesk's own window (Android 12; later ones use the
             // callback in updateAboveFocus).

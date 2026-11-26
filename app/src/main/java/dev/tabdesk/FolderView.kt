@@ -4,6 +4,7 @@ import android.app.ActivityOptions
 import android.content.ActivityNotFoundException
 import android.content.ClipData
 import android.content.ClipDescription
+import android.content.Context
 import android.content.Intent
 import android.graphics.Bitmap
 import android.graphics.Canvas
@@ -54,6 +55,10 @@ import kotlin.math.min
 class FileEntry(val file: File, val dir: Boolean, val modified: Long) {
     val name: String get() = file.name
     val ext get() = if (dir) "" else name.substringAfterLast('.', "").lowercase()
+    /** Bytes (0 for a folder), read when first asked. */
+    val size: Long by lazy { if (dir) 0L else file.length() }
+    /** How many things a folder holds (shown in TabDesk Files' list), read when first asked. */
+    val count: Int by lazy { if (dir) file.list()?.size ?: 0 else 0 }
 }
 
 /** A file being dragged out of a Folder View (the drag's local state, so another Folder View can take it). */
@@ -61,6 +66,11 @@ class FileDrag(val file: File, val from: FolderPanel)
 
 object FolderViews {
     const val NEWEST_FIRST = 1
+    /**
+     * inotify's "this watch was removed": a folder watcher gets it when it's stopped, which happens on every reload.
+     * It's no change to the folder; reloading on it restarted the watcher, so the folder reloaded three times a second.
+     */
+    const val WATCH_REMOVED = 0x8000
 
     val canRead get() = Environment.isExternalStorageManager()
     private val storageRoot: File get() = Environment.getExternalStorageDirectory()
@@ -120,7 +130,7 @@ object FolderViews {
     }
 
     /** The plain icon for a kind of file: its symbol on a soft tile of its colour (a folder is just the symbol). */
-    fun typeIcon(act: HomeActivity, e: FileEntry, size: Int): Bitmap {
+    fun typeIcon(act: TabActivity, e: FileEntry, size: Int): Bitmap {
         val (name, c) = kindOf(e)
         val color = if (c == 0) act.pal.accent else c
         val key = "$name/$color/$size"
@@ -172,7 +182,7 @@ object FolderViews {
     fun wantsThumb(e: FileEntry) = !e.dir && (e.ext in IMAGE || e.ext in VIDEO || e.ext == "apk")
 
     /** A picture of the file (photos, videos, an APK's app icon), made off the main thread. */
-    fun loadThumb(act: HomeActivity, e: FileEntry, px: Int, done: (Bitmap) -> Unit) {
+    fun loadThumb(act: Context, e: FileEntry, px: Int, done: (Bitmap) -> Unit) {
         io.execute {
             val b = try {
                 when {
@@ -212,7 +222,7 @@ object FolderViews {
         act.overlays.show(card, dim = true)
     }
 
-    private fun openAccessSettings(act: HomeActivity) {
+    fun openAccessSettings(act: TabActivity) {
         try {
             act.startActivity(Intent(Settings.ACTION_MANAGE_APP_ALL_FILES_ACCESS_PERMISSION, Uri.parse("package:${act.packageName}")))
         } catch (_: ActivityNotFoundException) {
@@ -261,7 +271,29 @@ object FolderViews {
     /** A file name someone typed, made safe: no folders in it, nothing hidden or empty. */
     fun cleanName(s: String) = s.trim().replace('/', '-').replace('\u0000', ' ').trimStart('.').take(200)
 
-    fun copyInto(act: HomeActivity, uri: Uri, dir: File): Boolean = try {
+    /** Where TabDesk notes the files it last started dragging, in either of its processes (other apps can't read it). */
+    private fun dragNote(ctx: Context) = File(ctx.filesDir, "outgoing-drag")
+
+    fun noteDrag(ctx: Context, files: List<File>) {
+        try { dragNote(ctx).writeText(files.joinToString("\n") { it.canonicalPath }) } catch (_: Exception) {}
+    }
+
+    /**
+     * The files a drop carries when TabDesk itself dragged them from its other process (TabDesk Files to a Folder View,
+     * or back), so they can be moved as well as copied. Null for anything else, including links made to look like ours.
+     */
+    fun ownDrop(ctx: Context, clip: ClipData?): List<File>? {
+        if (clip == null || clip.itemCount == 0) return null
+        val files = (0 until clip.itemCount).map { i ->
+            val u = clip.getItemAt(i).uri ?: return null
+            if (u.authority != FilesProvider.AUTHORITY) return null
+            FilesProvider.fileOf(u) ?: return null
+        }
+        val noted = try { dragNote(ctx).readLines().toSet() } catch (_: Exception) { return null }
+        return files.takeIf { f -> f.map { it.canonicalPath }.toSet() == noted }
+    }
+
+    fun copyInto(act: Context, uri: Uri, dir: File): Boolean = try {
         val name = act.contentResolver.query(uri, arrayOf(OpenableColumns.DISPLAY_NAME), null, null, null)?.use { c ->
             if (c.moveToFirst()) c.getString(0) else null
         }?.let { cleanName(it) }?.takeIf { it.isNotEmpty() } ?: (uri.lastPathSegment?.let { cleanName(it.substringAfterLast('/')) }?.ifEmpty { null } ?: "Dropped file")
@@ -473,6 +505,7 @@ class FolderPanel(private val act: HomeActivity, val item: DesktopItem, private 
         observer?.stopWatching()
         observer = object : FileObserver(d, CREATE or DELETE or MOVED_FROM or MOVED_TO or CLOSE_WRITE or DELETE_SELF or MOVE_SELF) {
             override fun onEvent(event: Int, path: String?) {
+                if (event and FolderViews.WATCH_REMOVED != 0 || observer !== this) return
                 if (path?.startsWith(".") == true && event and (DELETE_SELF or MOVE_SELF) == 0) return   // our own .part files
                 removeCallbacks(refresh); postDelayed(refresh, 350)
             }
@@ -550,6 +583,7 @@ class FolderPanel(private val act: HomeActivity, val item: DesktopItem, private 
         val clip = if (e.dir) ClipData(e.name, arrayOf(ClipDescription.MIMETYPE_TEXT_PLAIN), ClipData.Item(e.file.path))
             else ClipData(e.name, arrayOf(FilesProvider.mimeOf(e.file)), ClipData.Item(FilesProvider.uriFor(e.file)))
         val flags = View.DRAG_FLAG_OPAQUE or if (e.dir) 0 else View.DRAG_FLAG_GLOBAL or View.DRAG_FLAG_GLOBAL_URI_READ
+        if (!e.dir) FolderViews.noteDrag(act, listOf(e.file))
         // The file's menu (from holding it) goes, and a popup too, so the file can go onto whatever is under it.
         if (v.startDragAndDrop(clip, BitmapShadow(bmp, dp(56)), FileDrag(e.file, this), flags)) act.overlays.dismissAll()
     }
@@ -586,14 +620,18 @@ class FolderPanel(private val act: HomeActivity, val item: DesktopItem, private 
     private fun drop(e: DragEvent): Boolean {
         val target = targetAt(e.x, e.y)
         val s = e.localState
-        if (s is FileDrag) {
-            if (s.file.parentFile == target || s.file == target) return false
+        // From another Folder View, or from TabDesk Files: move or copy. From other apps: copy.
+        val own = if (s is FileDrag) listOf(s.file) else FolderViews.ownDrop(act, e.clipData)
+        if (own != null) {
+            val files = own.filter { it != target && it.parentFile != target }
+            if (files.isEmpty()) return false
             val at = act.anchorFor(this).let { r -> Rect(r.left + e.x.toInt(), r.top + e.y.toInt(), r.left + e.x.toInt(), r.top + e.y.toInt()) }
+            val what = if (files.size == 1) files[0].name else "${files.size} files"
             act.overlays.menu(at, listOf(
-                MenuEntry("Move here", G.SAVE) { transfer(s.file, target, move = true) },
-                MenuEntry("Copy here", G.PLUS) { transfer(s.file, target, move = false) },
+                MenuEntry("Move here", G.SAVE) { files.forEach { transfer(it, target, move = true) } },
+                MenuEntry("Copy here", G.PLUS) { files.forEach { transfer(it, target, move = false) } },
                 MenuEntry("Cancel", G.CLOSE),
-            ), "${s.file.name} → ${target.name}")
+            ), "$what → ${target.name}")
             return true
         }
         val clip = e.clipData ?: return false
@@ -691,9 +729,17 @@ fun HomeActivity.openFolderView(item: DesktopItem, from: View, byHover: Boolean 
     }
 }
 
+/** TabDesk Files at [dir], in a floating window if Files is set to open in one. */
+fun HomeActivity.openInFiles(dir: File) {
+    dock.close(); overlays.dismissAll()
+    val key = android.content.ComponentName(this, FilesActivity::class.java).flattenToString()
+    val opts = if (canFloat && key in Prefs.floatApps) floatingOptions() else null
+    try { startActivity(FilesActivity.intent(this, dir.takeIf { it.isDirectory }), opts) } catch (_: Exception) { toast("Can't open TabDesk Files") }
+}
+
 /** Open a file in the app Android picks for it ([choose]: let the user pick; [window]: in a floating window). */
-fun HomeActivity.openFile(f: File, from: View? = null, window: Boolean = false, choose: Boolean = false) {
-    dock.close()
+fun TabActivity.openFile(f: File, from: View? = null, window: Boolean = false, choose: Boolean = false) {
+    (this as? HomeActivity)?.dock?.close()
     val uri = FilesProvider.uriFor(f)
     val view = Intent(Intent.ACTION_VIEW).setDataAndType(uri, FilesProvider.mimeOf(f))
         .addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_ACTIVITY_NEW_TASK)
@@ -708,12 +754,23 @@ fun HomeActivity.openFile(f: File, from: View? = null, window: Boolean = false, 
     catch (_: SecurityException) { toast("Can't open ${f.name}") }
 }
 
-fun HomeActivity.shareFile(f: File) {
-    dock.close()
-    val send = Intent(Intent.ACTION_SEND).setType(FilesProvider.mimeOf(f))
-        .putExtra(Intent.EXTRA_STREAM, FilesProvider.uriFor(f))
-        .addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
-    try { startActivity(Intent.createChooser(send, "Share ${f.name}").addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)) }
+fun TabActivity.shareFile(f: File) = shareFiles(listOf(f))
+
+/** Share one file or several (Android's share sheet: Taildrop, Quick Share, mail, …). */
+fun TabActivity.shareFiles(files: List<File>) {
+    (this as? HomeActivity)?.dock?.close()
+    val list = files.filter { it.isFile }
+    if (list.isEmpty()) { toast("Folders can't be shared; share the files in them"); return }
+    val uris = ArrayList(list.map { FilesProvider.uriFor(it) })
+    val types = list.map { FilesProvider.mimeOf(it) }.distinct()
+    val type = types.singleOrNull() ?: types.map { it.substringBefore('/') }.distinct().singleOrNull()?.let { "$it/*" } ?: "*/*"
+    val send = if (uris.size == 1) Intent(Intent.ACTION_SEND).setType(type).putExtra(Intent.EXTRA_STREAM, uris[0])
+        else Intent(Intent.ACTION_SEND_MULTIPLE).setType(type).putParcelableArrayListExtra(Intent.EXTRA_STREAM, uris)
+    send.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+    // The share sheet's preview and some apps read the files from the clip.
+    send.clipData = ClipData.newRawUri(null, uris[0]).apply { uris.drop(1).forEach { addItem(ClipData.Item(it)) } }
+    val title = if (list.size == 1) "Share ${list[0].name}" else "Share ${list.size} files"
+    try { startActivity(Intent.createChooser(send, title).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)) }
     catch (_: ActivityNotFoundException) { toast("No app here can share it") }
 }
 
@@ -744,12 +801,21 @@ fun HomeActivity.fileMenu(e: FileEntry, anchor: View, panel: FolderPanel) {
     overlays.menu(anchorFor(anchor), list, f.name)
 }
 
-private fun HomeActivity.confirmDelete(e: FileEntry, panel: FolderPanel) {
-    val f = e.file
-    val inside = if (e.dir) (f.listFiles()?.size ?: 0) else 0
-    val card = overlays.dialogCard(dp(440), if (e.dir) "Delete this folder?" else "Delete this file?")
+private fun HomeActivity.confirmDelete(e: FileEntry, panel: FolderPanel) = confirmDelete(listOf(e.file)) { panel.changed() }
+
+/** "Delete …?", then deletes [files] (folders with what's in them) and calls [done] on the main thread. */
+fun TabActivity.confirmDelete(files: List<File>, done: () -> Unit) {
+    if (files.isEmpty()) return
+    val one = files.singleOrNull()
+    val inside = if (one != null && one.isDirectory) (one.listFiles()?.size ?: 0) else 0
+    val card = overlays.dialogCard(dp(440), when {
+        one == null -> "Delete ${files.size} items?"
+        one.isDirectory -> "Delete this folder?"
+        else -> "Delete this file?"
+    })
     card.addView(TextView(this).label(pal.text, 14.5f).apply {
-        text = "“${f.name}”" + (if (inside > 0) " and the $inside ${if (inside == 1) "item" else "items"} in it" else "") +
+        text = (if (one != null) "“${one.name}”" + (if (inside > 0) " and the $inside ${if (inside == 1) "item" else "items"} in it" else "")
+            else "These ${files.size} items" + (if (files.any { it.isDirectory }) " (and everything in the folders)" else "")) +
             " will be deleted from the tablet. This can't be undone."
         setLineSpacing(0f, 1.15f)
     }, llp(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply { bottomMargin = dp(16) })
@@ -758,8 +824,9 @@ private fun HomeActivity.confirmDelete(e: FileEntry, panel: FolderPanel) {
     buttons.addView(overlays.button("Delete", true) {
         overlays.dismissTop()
         FolderViews.io.execute {
-            val ok = if (e.dir) f.deleteRecursively() else f.delete()
-            runOnUiThread { if (!ok) toast("Couldn't delete all of it") else panel.changed() }
+            var ok = true
+            for (f in files) if (!(if (f.isDirectory) f.deleteRecursively() else f.delete())) ok = false
+            runOnUiThread { if (!ok) toast("Couldn't delete all of it"); done() }
         }
     }, llp(ViewGroup.LayoutParams.WRAP_CONTENT, dp(40)).apply { marginStart = dp(8) })
     card.addView(buttons, llp(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT))
@@ -785,6 +852,7 @@ fun HomeActivity.folderViewMenu(item: DesktopItem, anchor: View, panel: FolderPa
         panel?.reload()
     }
     list += MenuEntry("Show another folder…", G.FOLDER) { changeFolderView(item) }
+    list += MenuEntry("Open in TabDesk Files", G.WINDOW) { openInFiles(panel?.dir ?: File(item.key)) }
     list += MenuEntry("Rename", G.EDIT) {
         overlays.prompt("Rename Folder View", FolderViews.labelOf(item), FolderViews.nameOf(item.key),
             if (item.label != null) { { item.label = null; folderViewsChanged() } } else null) { typed ->
@@ -817,7 +885,7 @@ fun HomeActivity.folderViewMenu(item: DesktopItem, anchor: View, panel: FolderPa
 // ---------------------------------------------------------------- choosing a folder
 
 /** TabDesk's own folder chooser (Android's won't offer Download and some others): shortcuts, then browse. */
-fun HomeActivity.pickFolder(start: File?, heading: String, onPick: (File) -> Unit) {
+fun TabActivity.pickFolder(start: File?, heading: String, onPick: (File) -> Unit) {
     val rootDir = Environment.getExternalStorageDirectory()
     var cur = start ?: rootDir
     val card = overlays.dialogCard(dp(480), heading)

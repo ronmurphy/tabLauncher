@@ -50,7 +50,9 @@ new `.apk` and open it, as when installing. Your setup is kept either way.
 | Widget | long-press | Resize (drag the dot) · Widget settings · Move to the dock · Remove; long-press + move drags it |
 | Taskbar widgets button (left of the battery) | tap | the **widget dock**: widgets and Folder Views in a panel at the right, kept off the desktop. **+** adds one; drag its left edge to make it wider; long-press an item for Resize (drag the bar under it) · Move up / down · Move to the desktop · Remove. Opens above floating windows; a tap outside closes it |
 | Folder View (one icon) | tap / rest the mouse on it / long-press | a folder's files in a popup (moving the mouse away closes it) / the same / New folder · Newest first · Show another folder · Rename · Show as a panel · Move to the dock · Remove. Needs Android's **All files access**, which the first Folder View asks you to turn on |
-| Folder View (panel, or in the dock) | tap a file / middle-click / long-press it | open it / open it in a floating window / Open · Open in a window · Open with · Share · Rename · Delete; long-press **and move** drags the file into another app or onto another Folder View (Move here / Copy here); files dragged in from other apps are copied in. On the desktop, long-press the panel's title, empty space or edge **and move** to move the panel |
+| Folder View (panel, or in the dock) | tap a file / middle-click / long-press it | open it / open it in a floating window / Open · Open in a window · Open with · Share · Rename · Delete; long-press **and move** drags the file into another app, or onto another Folder View or TabDesk Files (Move here / Copy here); files dragged in from other apps are copied in. On the desktop, long-press the panel's title, empty space or edge **and move** to move the panel |
+| **TabDesk Files** (in Start, or a Folder View's long-press menu → Open in TabDesk Files) | tap | a file manager in a window of its own, which floats like any app: places at the left (under ☰ when the window is narrow), with your Folder Views' folders among them; Back, Up, the path (tap a part of it to go there), search in this folder, grid or list, and ⋮ for New folder · Paste here · Select all · sort by name / newest / largest · show hidden files · Put this folder on the desktop or in the dock |
+| A file or folder in TabDesk Files | tap / middle-click / long-press | open it / open it in a floating window / Open · Open in a window · Open with · Share · Select · Copy · Cut · Rename · Delete, and for a folder Put on the desktop · Put in the widget dock. With something selected, taps select more, and the top bar has Select all · Copy · Cut · Share · Delete; **Paste** at the bottom puts what you copied or cut in the folder you're in. Long-press **and move** drags files onto a folder or a Folder View (Move here / Copy here), or into another app, which gets a copy |
 | Start A–Z bar | tap a letter / number | shows only apps starting with it (tap again or Back for all); only characters your apps start with appear |
 | Start search | type, then Enter | opens the top hit, or searches the web |
 | Start search | a sum, e.g. `12*8+4`, `(2+3)^2/4`, `200*15%` | the answer at the top; tap it to copy |
@@ -85,6 +87,9 @@ new `.apk` and open it, as when installing. Your setup is kept either way.
   for a running app (with the helper), previews of its windows, which stay while the pointer is on them.
 - The **wheel** scrolls Start, Customize and folders; tilt it (or a sideways wheel) for the rows of choices.
 - A mouse's back button works as Back.
+- In **TabDesk Files**: Ctrl+click picks files one at a time and Shift+click a run of them; Ctrl+A / C / X / V
+  select all, copy, cut and paste; Ctrl+F searches; Delete and F2 delete and rename; Alt+← and Alt+↑ go back
+  and up; Esc works as Back (it clears the selection or search first).
 
 Portrait and landscape keep separate desktop arrangements. Saved positions are anchors: changing
 icon size / grid density scales the layout for display without overwriting it, so changing back restores it.
@@ -242,6 +247,10 @@ adb shell cmd package set-home-activity com.zui.launcher/.drawer.DrawerLauncher
 ## Code map (`app/src/main/java/dev/tabdesk/`)
 
 - `HomeActivity.kt`: window/insets, layers, launching, context menus, back/home handling
+- `TabActivity.kt`: what the home screen and TabDesk Files share (colours, menus and dialogs, floating launches)
+- `FilesActivity.kt`: TabDesk Files, the file manager window. It runs in a process and task of its own
+  (`:files`), reads TabDesk's settings without changing them, and asks the home screen for a new Folder View
+  with a broadcast only TabDesk can send (`dev.tabdesk.permission.FOLDER_VIEWS`)
 - `Desktop.kt`: snap-to-grid desktop (icons, shortcuts, widgets), drag & drop, widget resize
 - `DesktopItem.kt`: what's on the desktop (apps, shortcuts, widgets, folders) and how it's saved
 - `Shell.kt`: taskbar (pins, battery, clock) and Start menu (A–Z list, search, footer)
@@ -364,3 +373,5 @@ has the feature or Developer options → **Enable freeform windows** is on.
 - Tested on emulators: Android 16 (all of it) and Android 12 (the helper's calls; Android 12's floating
   windows don't draw on a headless emulator). On Android 16, going Home also minimises every floating
   window, and a floating window can cover the taskbar.
+- TabDesk Files floats on this tablet. Android 16's own desktop windows keep the home app's activities
+  full screen, so on an Android 16 device using those, TabDesk Files opens full screen.

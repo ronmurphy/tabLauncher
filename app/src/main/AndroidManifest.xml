@@ -34,6 +34,12 @@
     <uses-permission android:name="android.permission.MANAGE_EXTERNAL_STORAGE"
         tools:ignore="ScopedStorage" />
 
+    <!-- TabDesk Files (its own process) asks the home screen to add a Folder View; only TabDesk holds this. -->
+    <permission
+        android:name="dev.tabdesk.permission.FOLDER_VIEWS"
+        android:protectionLevel="signature" />
+    <uses-permission android:name="dev.tabdesk.permission.FOLDER_VIEWS" />
+
     <application
         android:allowBackup="true"
         android:enableOnBackInvokedCallback="true"
@@ -73,6 +79,27 @@
             android:excludeFromRecents="true"
             android:taskAffinity="dev.tabdesk.welcome"
             android:theme="@android:style/Theme.Translucent.NoTitleBar">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+        </activity>
+
+        <!-- TabDesk Files: a file manager with its own icon, task (it can float) and process (it can't take the
+             home screen down). Shown in TabDesk's Start menu; other launchers show it as "TabDesk Files".
+             resizeableActivity is spelled out: left to the SDK version, some tablets (Lenovo's) won't float it. -->
+        <activity
+            android:name=".FilesActivity"
+            android:configChanges="orientation|screenSize|screenLayout|smallestScreenSize|keyboard|keyboardHidden|navigation"
+            android:exported="true"
+            android:icon="@mipmap/ic_files"
+            android:label="@string/files_name"
+            android:launchMode="singleTask"
+            android:process=":files"
+            android:resizeableActivity="true"
+            android:taskAffinity="dev.tabdesk.files"
+            android:theme="@style/Theme.TabDesk.Files"
+            android:windowSoftInputMode="adjustResize|stateHidden">
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />
                 <category android:name="android.intent.category.LAUNCHER" />

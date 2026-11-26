@@ -69,14 +69,15 @@ class Dock(private val act: HomeActivity) {
         add(DesktopItem(DesktopItem.newId(), DesktopItem.WIDGET, widgetId = id, spanY = h.roundToInt().coerceIn(MIN_H, 560)))
     }
 
-    fun addFolderView(path: String) = add(DesktopItem(DesktopItem.newId(), DesktopItem.FILES, path, spanY = 300))
+    fun addFolderView(path: String, show: Boolean = true) = add(DesktopItem(DesktopItem.newId(), DesktopItem.FILES, path, spanY = 300), show)
 
-    fun add(item: DesktopItem) {
+    /** [show]: open the dock to show it (not when it came from TabDesk Files, which is in front). */
+    fun add(item: DesktopItem, show: Boolean = true) {
         item.spanX = 1
         if (item.spanY < MIN_H) item.spanY = 240
         items += item
         save()
-        if (isOpen) panel?.rebuild() else open()
+        if (isOpen) panel?.rebuild() else if (show) open()
     }
 
     /** Out of the dock: [delete] frees a widget; moving it to the desktop keeps it. */

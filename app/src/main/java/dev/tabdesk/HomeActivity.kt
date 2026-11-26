@@ -30,7 +30,7 @@ import android.widget.FrameLayout
 import android.widget.Toast
 import android.window.OnBackInvokedDispatcher
 
-class HomeActivity : Activity() {
+class HomeActivity : TabActivity() {
     companion object {
         private const val EXTRA_CUSTOMIZE = "dev.tabdesk.customize"
 
@@ -50,11 +50,9 @@ class HomeActivity : Activity() {
             private set
     }
 
-    lateinit var pal: Palette; private set
     lateinit var root: FrameLayout; private set
     lateinit var desktop: DesktopLayout; private set
     lateinit var taskbar: Taskbar; private set
-    lateinit var overlays: Overlays; private set
     lateinit var widgets: Widgets; private set
     lateinit var dock: Dock; private set
     private lateinit var startLayer: FrameLayout
@@ -81,6 +79,18 @@ class HomeActivity : Activity() {
             val status = i.getIntExtra(BatteryManager.EXTRA_STATUS, -1)
             val charging = status == BatteryManager.BATTERY_STATUS_CHARGING || status == BatteryManager.BATTERY_STATUS_FULL
             if (level >= 0) taskbar.battery.update(level * 100 / scale, charging)
+        }
+    }
+
+    /**
+     * TabDesk Files asks for a folder to be shown as a Folder View: it runs in its own process, which mustn't change
+     * TabDesk's settings, so the home screen does it. Only TabDesk can send this ([FilesActivity.ADD_PERMISSION]).
+     */
+    private val folderViewReceiver = object : BroadcastReceiver() {
+        override fun onReceive(c: Context, i: Intent) {
+            val path = i.getStringExtra(FilesActivity.EXTRA_PATH)?.takeIf { java.io.File(it).isDirectory } ?: return
+            if (i.getBooleanExtra(FilesActivity.EXTRA_DOCK, false)) dock.addFolderView(path, show = false)
+            else desktop.addFolderView(path, null)
         }
     }
 
@@ -122,6 +132,8 @@ class HomeActivity : Activity() {
         Updates.afterStart(this)
         customizeTab(intent)?.let { tab -> root.post { showSettings(tab.takeIf { it >= 0 }) } }
         Apps.load()
+        registerReceiver(folderViewReceiver, IntentFilter(FilesActivity.ACTION_ADD_FOLDER_VIEW), FilesActivity.ADD_PERMISSION, null,
+            Context.RECEIVER_NOT_EXPORTED)
         // Android 13 and later; Android 12 calls onBackPressed instead.
         if (Build.VERSION.SDK_INT >= 33)
             onBackInvokedDispatcher.registerOnBackInvokedCallback(OnBackInvokedDispatcher.PRIORITY_DEFAULT) { handleBack() }
@@ -170,6 +182,7 @@ class HomeActivity : Activity() {
         Apps.listeners -= appsListener
         Badges.listeners -= badgeListener
         WallpaperManager.getInstance(this).removeOnColorsChangedListener(wallpaperListener)
+        try { unregisterReceiver(folderViewReceiver) } catch (_: Exception) {}
         super.onDestroy()
     }
 
@@ -370,8 +383,6 @@ class HomeActivity : Activity() {
         if (startMenu.isOpen && !startMenu.clearLetter()) closeStart()
     }
 
-    fun hideIme() { window.insetsController?.hide(WindowInsets.Type.ime()) }
-
     fun onDragEnded(p: DragPayload) {
         p.sourceView?.visibility = View.VISIBLE
         p.sourceView?.alpha = 1f
@@ -391,11 +402,7 @@ class HomeActivity : Activity() {
     /** Middle-click on an app: a floating window where the tablet has them, otherwise a normal launch. */
     fun launchInWindow(app: AppInfo, from: View?) = if (canFloat) launchFloating(app) else launch(app, from)
 
-    /** Floating windows: the maker says so, or Developer options → "Enable freeform windows" is on. */
-    val canFloat: Boolean by lazy {
-        packageManager.hasSystemFeature(android.content.pm.PackageManager.FEATURE_FREEFORM_WINDOW_MANAGEMENT) ||
-            android.provider.Settings.Global.getInt(contentResolver, "enable_freeform_support", 0) != 0
-    }
+    override val coveredByWindows: Boolean get() = Windows.covering(this)
 
     val isLandscape: Boolean get() = windowManager.currentWindowMetrics.bounds.let { it.width() > it.height() }
 
@@ -410,21 +417,6 @@ class HomeActivity : Activity() {
         val at = IntArray(2).also { taskbar.getLocationOnScreen(it) }
         val bottom = if (taskbar.isShown && at[1] > b.top) at[1] else b.bottom - ins.bottom
         return Rect(b.left + ins.left, b.top + ins.top, b.right - ins.right, bottom)
-    }
-
-    /** Options that open an activity in a floating (freeform) window, centred and sized for the orientation. */
-    fun floatingOptions(): android.os.Bundle {
-        val b = windowManager.currentWindowMetrics.bounds
-        val land = b.width() > b.height()
-        val w = (b.width() * if (land) 0.5f else 0.74f).toInt()
-        val h = (b.height() * if (land) 0.74f else 0.5f).toInt()
-        val l = (b.width() - w) / 2
-        val t = ((b.height() - h) / 2.6f).toInt()
-        val opts = ActivityOptions.makeBasic().setLaunchBounds(Rect(l, t, l + w, t + h)).toBundle()
-        // Launch bounds alone are ignored unless the window is freeform. The setter for that is hidden API
-        // (blocked on Android 15), but the system reads the mode from this bundle key, so set it directly.
-        opts.putInt("android.activity.windowingMode", 5 /* WINDOWING_MODE_FREEFORM */)
-        return opts
     }
 
     /** Open [app] in a floating (freeform) window. */
@@ -497,10 +489,6 @@ class HomeActivity : Activity() {
         Fonts.download(this, family) { ok -> if (ok && Prefs.font == family && !isDestroyed) { Fonts.load(this); rebuildUi() } }
     }
 
-    fun safeStart(i: Intent) {
-        try { startActivity(i.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)) } catch (e: Exception) { toast("Nothing to open that") }
-    }
-
     fun safeStartForResult(i: Intent, req: Int) {
         try { startActivityForResult(i, req) } catch (e: Exception) { toast("Nothing to open that") }
     }
@@ -528,8 +516,6 @@ class HomeActivity : Activity() {
         intent?.takeIf { it.hasExtra(EXTRA_CUSTOMIZE) }?.getIntExtra(EXTRA_CUSTOMIZE, -1)
 
     fun showSettings(tab: Int? = null) { closeStart(false); Customize.show(this, restoreScroll = false, tab = tab) }
-
-    fun toast(s: String) = Toast.makeText(this, s, Toast.LENGTH_SHORT).show()
 
     // ------------------------------------------------------------ pins
 
@@ -588,7 +574,8 @@ class HomeActivity : Activity() {
         e += MenuEntry("App info", G.INFO) {
             try { la.startAppDetailsActivity(app.component, app.user, anchor.screenRect(), null) } catch (ex: Exception) { }
         }
-        if (!app.system) e += MenuEntry("Uninstall", G.TRASH) {
+        // TabDesk Files is part of TabDesk: uninstalling "it" would remove TabDesk.
+        if (!app.system && app.pkg != packageName) e += MenuEntry("Uninstall", G.TRASH) {
             safeStart(Intent(Intent.ACTION_DELETE, Uri.fromParts("package", app.pkg, null)))
         }
         // Running (the helper knows): minimise or restore, snap a floating window, and close it, as swiping it
