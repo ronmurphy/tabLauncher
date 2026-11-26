@@ -347,8 +347,9 @@ has the feature or Developer options → **Enable freeform windows** is on.
 **Managing them (with the helper)**, in `Windows.kt`:
 
 - Floating windows sit above TabDesk's own window, so they cover its menus. While one is on screen,
-  menus and window previews go in a window of their own above apps (`TYPE_APPLICATION_OVERLAY`, "Display
-  over other apps"). Dialogs and anything you type into stay in TabDesk's window.
+  menus, dialogs, window previews and the widget dock go in a window of their own above apps
+  (`TYPE_APPLICATION_OVERLAY`, "Display over other apps"). That window takes the keyboard and Back only
+  while a dialog is open in it, so typing and Back otherwise stay with the app in use.
 - "Display over other apps" comes from Allow in Customize → Helper. A tablet set up before this shows
   Allow again there. Nothing is granted without that tap.
 - Android's Settings, permission requests and the installer hide other apps' overlays while they're on
