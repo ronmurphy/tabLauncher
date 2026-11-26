@@ -34,14 +34,19 @@ object AgentLog {
         }
     }
 
+    /** Whether a write is waiting on [writer]: it writes whatever is there when it runs, so one is enough. */
+    private var writePending = false
+
     fun add(caller: String, tool: String, front: String?, result: String) {
         val e = Entry(System.currentTimeMillis(), caller, tool, front, result)
-        val all = synchronized(this) {
+        synchronized(this) {
             entries += e
             while (entries.size > KEEP) entries.removeFirst()
-            entries.toList()
+            if (writePending) return
+            writePending = true
         }
         writer.execute {
+            val all = synchronized(this) { writePending = false; entries.toList() }
             try {
                 val tmp = File(file.path + ".new")
                 tmp.bufferedWriter().use { w ->

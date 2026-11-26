@@ -31,7 +31,7 @@ internal fun Page.agent() {
 
     section("Apps that asked")
     // An approved app whose signature changed asks again, but shows under Approved apps, with "Approve this copy".
-    val asked = Agent.asked().filter { !Agent.isApproved(it.pkg) }
+    val asked = Agent.asked().filter { !it.dismissed && !Agent.isApproved(it.pkg) }
     if (asked.isEmpty()) addNote("None yet. An app asks when you switch on its tablet setting, e.g. in DroidACP.")
     for (a in asked) appRow(a.pkg,
         if (a.revoked) "You took its approval back. Approve it to let it use the tablet again."

@@ -37,6 +37,12 @@ class AgentService : Service() {
         private const val STREAM_STALL_MS = 10_000L
         /** How long a call waits for the helper to connect before answering helper_not_running. */
         private const val HELPER_WAIT_MS = 2_000L
+        /** At most this many of one caller's tools/call requests waiting or running; more are refused at once. */
+        private const val MAX_RUNNING = 8
+        /** A refusal by the checks goes in the log at most once in this long per caller and reason. */
+        private const val LOG_REFUSAL_EVERY_MS = 10_000L
+        /** The MCP versions TabDesk speaks, newest first. It uses nothing that differs between them. */
+        private val PROTOCOL_VERSIONS = listOf("2025-11-25", "2025-06-18")
 
         @Volatile private var instance: AgentService? = null
 
@@ -64,6 +70,8 @@ class AgentService : Service() {
         val exec: ExecutorService = Executors.newSingleThreadExecutor { r -> Thread(r, "agent-$pkg") }
         val running = ConcurrentHashMap<String, Call>()
         val recent = ArrayDeque<Long>()
+        /** When each refusal by the checks last went in the log, by its code. Only the caller's own thread uses it. */
+        val logged = HashMap<String, Long>()
         var lastState = ""
         var lastReason = ""
         var death: IBinder.DeathRecipient? = null
@@ -146,7 +154,7 @@ class AgentService : Service() {
         override fun resume() {
             val c = callers[Binder.getCallingUid()] ?: return
             if (Agent.refusalFor(c.pkg, c.cert) != null) return
-            Agent.resume()
+            Agent.resume(c.pkg)
         }
     }
 
@@ -257,6 +265,11 @@ class AgentService : Service() {
                 val tool = name?.let { Tools.find(it) }
                 if (tool == null) { answer(c, id, null, rpcError(mcpId, -32602, "Unknown tool: ${name ?: "(none)"}")); return }
                 val args = params.opt("arguments") as? JSONObject ?: JSONObject()
+                if (c.running.size >= MAX_RUNNING) {
+                    // Not logged: a flood of these would push everything else out of the log.
+                    answer(c, id, null, rpcResult(mcpId, Tools.refused("rate_limited", "Too many calls waiting: wait for some to finish.")))
+                    return
+                }
                 val call = Call(id, mcpId)
                 c.running[id] = call
                 call.future = c.exec.submit { runCall(c, call, tool, args) }
@@ -266,8 +279,9 @@ class AgentService : Service() {
     }
 
     private fun initialize(c: Caller, params: JSONObject): JSONObject {
+        // The client's own if TabDesk speaks it, else TabDesk's newest, as MCP asks: never one TabDesk doesn't know.
         val asked = params.optString("protocolVersion")
-        val version = if (asked >= "2025-06-18" && Regex("""\d{4}-\d{2}-\d{2}""").matches(asked)) asked else "2025-06-18"
+        val version = if (asked in PROTOCOL_VERSIONS) asked else PROTOCOL_VERSIONS.first()
         val approved = Agent.refusalFor(c.pkg, c.cert) == null
         val tablet = if (approved) Agent.tablet() else null
         return JSONObject()
@@ -285,14 +299,17 @@ class AgentService : Service() {
     private fun runCall(c: Caller, call: Call, tool: Tools.Tool, args: JSONObject) {
         val deadline = System.currentTimeMillis() + tool.longestMs
         var began = false
+        var checked = false   // whether the checks passed, so it's a real call (logged every time)
         val (result, front) = try {
             val refusal = check(c, deadline)
+                ?: Agent.beginCall(c.pkg)?.let { controlRefused(it) }   // control again, now under Agent's lock
             if (refusal != null) refusal to null
             else {
-                Agent.beginCall(c.pkg); began = true
+                began = true; checked = true
                 Tools.run(this, c.pkg, tool, args, deadline)
             }
         } catch (e: InterruptedException) {
+            c.running.remove(call.id, call)
             return   // cancelled
         } catch (e: Exception) {
             Log.w(TAG, "${tool.name}: $e")
@@ -300,9 +317,25 @@ class AgentService : Service() {
         } finally {
             if (began) Agent.endCall()
         }
-        c.running.remove(call.id)
-        AgentLog.add(c.pkg, tool.name, front, Tools.outcome(result))
-        if (!call.cancelled) answer(c, call.id, call, rpcResult(call.mcpId, result))
+        val outcome = Tools.outcome(result)
+        if (checked || quietEnough(c, outcome)) AgentLog.add(c.pkg, tool.name, front, outcome)
+        // A cancelled call was taken out of running when it was cancelled, and gets no answer.
+        if (!call.cancelled) answer(c, call.id, call, rpcResult(call.mcpId, result)) else c.running.remove(call.id, call)
+    }
+
+    /** Whether a refusal by the checks may go in the log: not if the same one from [c] did in the last 10 seconds. */
+    private fun quietEnough(c: Caller, outcome: String): Boolean {
+        val now = System.currentTimeMillis()
+        val last = c.logged[outcome]
+        if (last != null && now - last < LOG_REFUSAL_EVERY_MS) return false
+        c.logged[outcome] = now
+        return true
+    }
+
+    private fun controlRefused(code: String): JSONObject = when (code) {
+        "busy" -> Tools.refused("busy", "${Agent.controller?.let { Agent.label(it) } ?: "Another app"} is using the tablet.")
+        "stopped" -> Tools.refused("stopped", "The user stopped the agent. It can go on after the user's next message.")
+        else -> Tools.refused("paused", "The user touched the screen. The agent can go on after the user's next message.")
     }
 
     /** Part 3's limits 1–5, which every tool checks. Null when the call may go ahead. */
@@ -315,12 +348,7 @@ class AgentService : Service() {
                 "(its signature changed): approve it again in TabDesk → Customize → Agent.")
             "lapsed" -> return Tools.refused("lapsed", "The approval ran out: open TabDesk → Customize → Agent.")
         }
-        val control = Agent.control
-        val controller = Agent.controller
-        if ((control == Agent.ACTIVE || control == Agent.PAUSED) && controller != null && controller != c.pkg)
-            return Tools.refused("busy", "${Agent.label(controller)} is using the tablet.")
-        if (control == Agent.STOPPED) return Tools.refused("stopped", "The user stopped the agent. It can go on after the user's next message.")
-        if (control == Agent.PAUSED) return Tools.refused("paused", "The user touched the screen. The agent can go on after the user's next message.")
+        Agent.controlRefusal(c.pkg)?.let { return controlRefused(it) }
         val now = System.currentTimeMillis()
         synchronized(c.recent) {
             while (c.recent.isNotEmpty() && now - c.recent.first() >= 1000) c.recent.removeFirst()
@@ -328,8 +356,10 @@ class AgentService : Service() {
             c.recent.addLast(now)
         }
         if (!HelperClient.connected && AdbKey.exists(this)) {
-            // It may just be connecting (a restarted TabDesk finds the running helper within a second or two).
-            HelperClient.ensure(this)
+            // It may just be connecting (a restarted TabDesk finds the running helper within a second or two). Only
+            // the helper already running is tried: starting a new one is the home screen's job, at its own pace, so
+            // calls can't make TabDesk restart the helper or switch debugging on over and over.
+            HelperClient.reconnect(this)
             val until = minOf(System.currentTimeMillis() + HELPER_WAIT_MS, deadline - 300)
             while (!HelperClient.connected && System.currentTimeMillis() < until) Thread.sleep(100)
         }
@@ -348,19 +378,34 @@ class AgentService : Service() {
         JSONObject().put("jsonrpc", "2.0").put("id", mcpId ?: JSONObject.NULL)
             .put("error", JSONObject().put("code", code).put("message", message)).toString()
 
-    /** Sends [json] as reply, or through a pipe (replyStream) when it's over 32 Ki characters. */
+    /**
+     * Sends [json] as reply, or through a pipe (replyStream) when it's over 32 Ki characters. A tools/call's [call]
+     * stays in running until its answer is sent, or its stream is done, so cancelling it closes the stream.
+     */
     private fun answer(c: Caller, id: String, call: Call?, json: String) {
+        var streaming = false
         try {
-            if (json.length <= MAX_CHARS) { c.callback.reply(id, json); return }
+            if (json.length <= MAX_CHARS) {
+                call?.let { c.running.remove(id, it) }   // first, so the caller may use the id again once it has the reply
+                c.callback.reply(id, json)
+                return
+            }
             val (read, write) = ParcelFileDescriptor.createPipe()
             call?.pipe = write
+            // Cancelled meanwhile? A cancel after this line sees the pipe and closes it itself.
+            if (call?.cancelled == true) { read.close(); write.close(); return }
             c.callback.replyStream(id, read)
             read.close()
-            thread(name = "agent-stream", isDaemon = true) { stream(write, json.toByteArray(Charsets.UTF_8)) }
+            streaming = true
+            thread(name = "agent-stream", isDaemon = true) {
+                try { stream(write, json.toByteArray(Charsets.UTF_8)) } finally { call?.let { c.running.remove(id, it) } }
+            }
         } catch (e: RemoteException) {
             Log.w(TAG, "${c.pkg}: couldn't answer $id: $e")
         } catch (e: Exception) {
             Log.w(TAG, "${c.pkg}: couldn't answer $id: $e")
+        } finally {
+            if (!streaming) call?.let { c.running.remove(id, it) }
         }
     }
 

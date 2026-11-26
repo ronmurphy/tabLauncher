@@ -44,8 +44,12 @@ object Agent {
     class Approval(val pkg: String, val cert: String, val since: Long, val warned: Boolean = false) {
         val lapses get() = since + LAPSE_MS
     }
-    /** An app that asked and isn't approved. [revoked]: the user took its approval back. */
-    class Asked(val pkg: String, val cert: String, val at: Long, val notified: Long, val revoked: Boolean = false)
+    /**
+     * An app that asked and isn't approved. [revoked]: the user took its approval back. [dismissed]: the user dismissed
+     * it, so it's hidden from "Apps that asked" until it asks again, but it stays on the never list.
+     */
+    class Asked(val pkg: String, val cert: String, val at: Long, val notified: Long, val revoked: Boolean = false,
+        val dismissed: Boolean = false)
 
     private lateinit var app: Context
     private val main = Handler(Looper.getMainLooper())
@@ -79,6 +83,8 @@ object Agent {
         if (::app.isInitialized) return
         app = ctx.applicationContext
         load()
+        // Alarms don't last past a restart of the tablet: set the next one again, and catch up on any that were missed.
+        main.post { checkLapses() }
     }
 
     // ------------------------------------------------------------ reading
@@ -172,9 +178,16 @@ object Agent {
         changed("revoked")
     }
 
-    /** Drops an app from "Apps that asked" without approving it. */
+    /**
+     * Hides an app from "Apps that asked" without approving it. It's kept, marked dismissed, so it stays on the never
+     * list: the agent can't read its screens, with their Allow and Deny buttons, just because it was dismissed.
+     */
     fun dismiss(pkg: String) {
-        synchronized(this) { if (asked.remove(pkg) == null) return; save() }
+        synchronized(this) {
+            val a = asked[pkg] ?: return
+            asked[pkg] = Asked(a.pkg, a.cert, a.at, a.notified, a.revoked, dismissed = true)
+            save()
+        }
         app.getSystemService(NotificationManager::class.java).cancel(NOTE_ASKED, pkg.hashCode())
         changed("")
     }
@@ -208,6 +221,7 @@ object Agent {
             if (approvals[pkg]?.cert == cert) return
             val before = asked[pkg]
             val due = before == null || now - before.notified >= ASKED_NOTE_EVERY_MS
+            // Asking again brings a dismissed app back to "Apps that asked".
             asked[pkg] = Asked(pkg, cert, before?.at ?: now, if (due) now else before!!.notified, before?.revoked == true)
             save()
             due
@@ -219,16 +233,34 @@ object Agent {
 
     // ------------------------------------------------------------ control
 
-    /** A tools/call from [pkg] starts. The checks have passed. */
-    fun beginCall(pkg: String) {
+    /**
+     * A tools/call from [pkg] starts, its checks passed. Control is looked at again here, under the lock, since it
+     * may have changed while the checks ran (another app's call began, or the user pressed Stop). Null if the call
+     * may go ahead, else the refusal: "busy", "stopped" or "paused". Only a null needs [endCall].
+     */
+    fun beginCall(pkg: String): String? {
         val was: String
         synchronized(this) {
+            controlRefusal(pkg)?.let { return it }
             main.removeCallbacks(goIdle)
             was = control
             running++
             if (control == IDLE) setControl(ACTIVE, "", pkg)
         }
         if (was == IDLE) changed("")
+        return null
+    }
+
+    /** Why [pkg] can't use the tablet now as far as control goes ("busy", "stopped", "paused"), or null. */
+    fun controlRefusal(pkg: String): String? = synchronized(this) {
+        val who = controller
+        when {
+            control == IDLE -> null
+            who != null && who != pkg -> "busy"   // another app is using it, or stopped or paused while using it
+            control == STOPPED -> "stopped"
+            control == PAUSED -> "paused"
+            else -> null
+        }
     }
 
     fun endCall() {
@@ -238,9 +270,13 @@ object Agent {
         }
     }
 
-    /** Stop: from the caller ("caller") or TabDesk's indicator or notification ("tabdesk"). */
+    /**
+     * Stop: from a caller, [pkg] ("caller"), or from TabDesk's indicator or notification (null, "tabdesk"). A caller
+     * may stop only itself: when control is idle, or it's the one using the tablet.
+     */
     fun stop(pkg: String?, reason: String) {
         synchronized(this) {
+            if (pkg != null && controller != null && controller != pkg) return
             if (control == STOPPED) return
             val who = pkg ?: controller ?: return
             main.removeCallbacks(goIdle)
@@ -249,10 +285,14 @@ object Agent {
         changed("")
     }
 
-    /** The user's next chat message, or Continue: stopped or paused control goes back to idle. */
-    fun resume() {
+    /**
+     * The user's next chat message ([pkg], the caller), or Continue on TabDesk (null): stopped or paused control goes
+     * back to idle. A caller may resume only itself, not an app another app's user stopped.
+     */
+    fun resume(pkg: String? = null) {
         synchronized(this) {
             if (control != STOPPED && control != PAUSED) return
+            if (pkg != null && controller != pkg) return
             setControl(IDLE, "resumed", null)
         }
         changed("resumed")
@@ -386,7 +426,8 @@ object Agent {
             approvals[it.getString("pkg")] = Approval(it.getString("pkg"), it.getString("cert"), it.getLong("since"), it.optBoolean("warned"))
         } }
         o.optJSONArray("asked")?.let { a -> for (i in 0 until a.length()) a.getJSONObject(i).let {
-            asked[it.getString("pkg")] = Asked(it.getString("pkg"), it.getString("cert"), it.getLong("at"), it.optLong("notified"), it.optBoolean("revoked"))
+            asked[it.getString("pkg")] = Asked(it.getString("pkg"), it.getString("cert"), it.getLong("at"), it.optLong("notified"), it.optBoolean("revoked"),
+                it.optBoolean("dismissed"))
         } }
         o.optJSONArray("allowed")?.let { a -> for (i in 0 until a.length()) allowed += a.getString(i) }
     }
@@ -397,7 +438,8 @@ object Agent {
             .put("approved", JSONArray(approvals.values.map {
                 JSONObject().put("pkg", it.pkg).put("cert", it.cert).put("since", it.since).put("warned", it.warned) }))
             .put("asked", JSONArray(asked.values.map {
-                JSONObject().put("pkg", it.pkg).put("cert", it.cert).put("at", it.at).put("notified", it.notified).put("revoked", it.revoked) }))
+                JSONObject().put("pkg", it.pkg).put("cert", it.cert).put("at", it.at).put("notified", it.notified).put("revoked", it.revoked)
+                    .put("dismissed", it.dismissed) }))
             .put("allowed", JSONArray(allowed.toList()))
         try {
             val tmp = File(file.path + ".new")

@@ -26,6 +26,7 @@ import java.net.Socket
 import java.security.SecureRandom
 import java.util.Properties
 import java.util.concurrent.Executors
+import java.util.concurrent.atomic.AtomicBoolean
 import kotlin.concurrent.thread
 
 /**
@@ -80,10 +81,34 @@ internal object HelperClient {
 
     private fun changed() = main.post { listeners.toList().forEach { it() } }
 
-    /** Connects to the helper, starting it if it isn't running. Safe to call often: does nothing if connected. */
+    /**
+     * Connects to the helper, starting it if it isn't running. Safe to call often: does nothing if connected, and
+     * while one try is waiting its turn, more calls add nothing.
+     */
     fun ensure(ctx: Context) {
         app = ctx.applicationContext
-        exec.execute { if (!connected) ensureNow() }
+        queue(start = true)
+    }
+
+    /** Connects to the helper only if one is running already: never starts one. For agent calls (AgentService). */
+    fun reconnect(ctx: Context) {
+        app = ctx.applicationContext
+        queue(start = false)
+    }
+
+    private val queued = AtomicBoolean(false)
+    @Volatile private var queuedStart = false
+
+    /** At most one try waits on [exec] at a time; it starts the helper if any of the calls it stands for asked to. */
+    private fun queue(start: Boolean) {
+        if (start) queuedStart = true
+        if (!queued.compareAndSet(false, true)) return
+        exec.execute {
+            queued.set(false)
+            val s = queuedStart
+            queuedStart = false
+            if (!connected) ensureNow(s)
+        }
     }
 
     /** Asks the helper to close a task, as swiping it away in Recents does. */
@@ -227,11 +252,12 @@ internal object HelperClient {
 
     private fun send(line: String) = try { out?.run { write("$line\n".toByteArray()); flush() } } catch (_: Exception) { }
 
-    private fun ensureNow() {
+    private fun ensureNow(start: Boolean) {
         if (!AdbKey.exists(app)) { problem = "TabDesk isn't paired yet"; changed(); return }
         val build = buildId()
         val saved = loadSaved()
         if (saved != null && connect(saved, build, attempts = 1)) return
+        if (!start) return
         starting = true; problem = null; changed()
         try {
             val s = start(build)
@@ -366,10 +392,16 @@ internal object HelperClient {
         return Rect(n[0], n[1], n[2], n[3]).takeIf { !it.isEmpty }
     }
 
-    /** Tries again later, waiting longer after each failure so a lasting problem doesn't keep switching things. */
+    private val retry = Runnable { ensure(app) }
+
+    /**
+     * Tries again later, waiting longer after each failure so a lasting problem doesn't keep switching things. Only
+     * one retry is ever waiting: a new one replaces it.
+     */
     private fun retryLater() {
         val delay = when (failures) { 0, 1 -> 5_000L; 2 -> 30_000L; 3 -> 120_000L; else -> 600_000L }
-        main.postDelayed({ ensure(app) }, delay)
+        main.removeCallbacks(retry)
+        main.postDelayed(retry, delay)
     }
 
     private fun wifi(): Boolean {

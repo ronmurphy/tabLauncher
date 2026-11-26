@@ -100,7 +100,17 @@ internal object Reader {
                 .put("title", w.title?.toString() ?: JSONObject.NULL).put("bounds", JSONArray(listOf(b.left, b.top, b.right, b.bottom))))
         }
 
-        val picture = if (pictureMax > 0) try { picture(u, task, myBounds, coverRects, pictureMax) } catch (e: Throwable) {
+        val picture = if (pictureMax > 0) try {
+            // Under a see-through window (a translucent or dialog-like activity) whatever is below shows, and the
+            // accessibility window list leaves out what's below, so it can't be blacked out. Android's activity list
+            // says what shows through: another app's activity in the same task means no picture; the task itself
+            // being see-through means only a picture of the task alone (its snapshot), never of the whole screen.
+            when (seeThrough(task.id, pkg)) {
+                Through.NOTHING -> picture(u, task, myBounds, coverRects, pictureMax, wholeScreen = true)
+                Through.BELOW_TASK -> picture(u, task, myBounds, coverRects, pictureMax, wholeScreen = false)
+                else -> null
+            }
+        } catch (e: Throwable) {
             Helper.log("picture", e); null
         } else null
 
@@ -315,11 +325,68 @@ internal object Reader {
     // ------------------------------------------------------------ the picture
 
     /**
-     * A picture of the app alone, at most [max] on its longer side: its task as Recents would keep it (Android 12L
-     * and later), else the whole screen. Either way it's cut to the app's windows, and blacked out wherever none of
-     * them is, and wherever [covers] (other windows over the app) are.
+     * What shows through [pkg]'s activities on top of task [taskId]: NOTHING (one of them hides everything under it),
+     * BELOW_TASK (they're all see-through down to the task's bottom, so other tasks, the home screen or the wallpaper
+     * show), ANOTHER_APP (another app's activity in the task shows), or UNKNOWN (Android's list didn't say).
      */
-    private fun picture(u: UiAutomation, task: Helper.Task, mine: List<Rect>, covers: List<Rect>, max: Int): JSONObject? {
+    enum class Through { NOTHING, BELOW_TASK, ANOTHER_APP, UNKNOWN }
+
+    private class Activity(val key: String, val index: Int, val pkg: String) {
+        var occludes: Boolean? = null
+        var visible: Boolean? = null
+    }
+
+    private val histRe = Regex("""\* Hist\s+#(\d+): ActivityRecord\{(\S+) u\d+ ([^/\s]+)/\S+ t(\d+)""")
+    private val occludesRe = Regex("""\boccludesParent=(true|false)""")
+    private val visibleRe = Regex("""\bmVisible=(true|false)""")
+
+    /**
+     * By the window manager's own list (dumpsys activity activities): the task's activities top first, each with
+     * occludesParent (it hides what's under it, i.e. it isn't translucent or floating) and mVisible.
+     */
+    private fun seeThrough(taskId: Int, pkg: String): Through {
+        val acts = LinkedHashMap<String, Activity>()
+        var cur: Activity? = null
+        try {
+            val p = Runtime.getRuntime().exec(arrayOf("dumpsys", "activity", "activities"))
+            p.inputStream.bufferedReader().useLines { lines ->
+                for (line in lines) {
+                    val h = histRe.find(line)
+                    if (h != null) {
+                        val (index, key, apkg, t) = h.destructured
+                        // Each activity once, from where it's first listed with its details.
+                        cur = if (t.toIntOrNull() == taskId && key !in acts) Activity(key, index.toInt(), apkg).also { acts[key] = it } else null
+                        continue
+                    }
+                    if (line.trimStart().startsWith("* ")) { cur = null; continue }   // a task or another section's list
+                    val a = cur ?: continue
+                    if (a.occludes == null) occludesRe.find(line)?.let { a.occludes = it.groupValues[1] == "true" }
+                    if (a.visible == null) visibleRe.find(line)?.let { a.visible = it.groupValues[1] == "true" }
+                }
+            }
+            p.destroy()
+        } catch (e: Throwable) { Helper.log("activities", e); return Through.UNKNOWN }
+        val top = acts.values.sortedByDescending { it.index }
+        if (top.firstOrNull()?.pkg != pkg) return Through.UNKNOWN
+        for (a in top) {
+            if (a.visible == false) continue   // not drawn, so nothing of it shows
+            if (a.pkg != pkg) return Through.ANOTHER_APP
+            when (a.occludes) {
+                true -> return Through.NOTHING
+                null -> return Through.UNKNOWN
+                false -> {}
+            }
+        }
+        return Through.BELOW_TASK
+    }
+
+    /**
+     * A picture of the app alone, at most [max] on its longer side: its task as Recents would keep it (Android 12L
+     * and later), else the whole screen if [wholeScreen] allows. Either way it's cut to the app's windows, and
+     * blacked out wherever none of them is, and wherever [covers] (other windows over the app) are.
+     */
+    private fun picture(u: UiAutomation, task: Helper.Task, mine: List<Rect>, covers: List<Rect>, max: Int,
+                        wholeScreen: Boolean): JSONObject? {
         val screen = screenSize()?.let { Rect(0, 0, it.first, it.second) } ?: return null
         val area = Rect().also { r -> mine.forEach { r.union(it) } }
         if (!area.intersect(screen)) return null
@@ -332,6 +399,7 @@ internal object Reader {
             val ratio = b.width.toFloat() / b.height / (taskRect.width().toFloat() / taskRect.height())
             if (ratio in 0.97f..1.03f) { src = b; of = taskRect } else b.recycle()
         }
+        if (src == null && !wholeScreen) return null
         if (src == null) src = u.takeScreenshot()?.let { s ->
             (if (s.config == Bitmap.Config.ARGB_8888) s else s.copy(Bitmap.Config.ARGB_8888, false).also { s.recycle() })
         }

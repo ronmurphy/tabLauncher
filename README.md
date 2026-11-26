@@ -392,11 +392,14 @@ is kept outside the repo.
 - **How it reads:** TabDesk's helper reads the screen through Android's UiAutomation (as `uiautomator`
   does), only while an app is using the tablet, and only the allowed app in front. It never reads a
   password field's text. Windows over the app (the keyboard, a notification, another app) are named
-  only as far as you've allowed, and blacked out of screenshots, as is the status bar.
+  only as far as you've allowed, and blacked out of screenshots, as is the status bar. If the app's
+  window is see-through and another app could show through it, there's no screenshot at all.
 - **Never:** TabDesk itself (home screen, Files, Tasks, Customize), System UI, Settings, the keyboard,
-  Google Play services, the file picker, package installers, or any app that asked to use the tablet.
+  Google Play services, the file picker, package installers, or any app that asked to use the tablet
+  (dismissing it from "Apps that asked" doesn't change that).
 - **While an app is using it,** the taskbar and a notification say so, with **Stop**. Stop refuses
-  everything until you send your next chat message or tap Continue.
+  everything until you send your next chat message or tap Continue. Another approved app gets "busy"
+  meanwhile, and can't stop or resume it.
 - **Every call is logged** (the last 500, in Customize → Agent): when, which app, what it asked for,
   and the outcome, never what was read.
 

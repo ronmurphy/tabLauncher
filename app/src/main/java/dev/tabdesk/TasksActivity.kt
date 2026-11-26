@@ -346,7 +346,7 @@ class TasksActivity : TabActivity() {
         packageManager.getLaunchIntentForPackage(pkg)?.let { launch ->
             if (pkg != packageName) entries += MenuEntry("Open", icon = SymbolDrawable(this, "open_in_new", pal.text)) { safeStart(launch) }
         }
-        val tasks = HelperClient.tasks.filter { it.pkg == pkg }
+        val tasks = HelperClient.tasks.filter { it.running && it.pkg == pkg }   // not ones only left in Recents
         if (tasks.isNotEmpty() && pkg != packageName)
             entries += MenuEntry(if (tasks.size == 1) "Close its window" else "Close its ${tasks.size} windows",
                 icon = SymbolDrawable(this, "close", pal.text)) {
