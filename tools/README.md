@@ -41,8 +41,9 @@ it over adb as `emulator-5554`:
 that snapshot was saved. With `-no-snapshot-save` nothing new is saved, so whatever you installed or set since is gone
 at the next start. Save the snapshot before shutting down, as above, or start with `-no-snapshot-load` (a cold boot
 onto the current disk). A snapshot loads only with the GPU mode it was saved with, so always start with
-`-gpu swiftshader_indirect` as above. TabDesk_A16's was saved 2026-11-26 01:49: the `agent-control` build (552fb77), the test
-caller approved, and Clock allowed in Customize → Agent.
+`-gpu swiftshader_indirect` as above. Both were saved 2026-11-26 08:58 with the `agent-control` build after the code
+review (532ae19). TabDesk_A16: both test callers approved, Clock and See-through allowed in Customize → Agent.
+TabDesk_A12: the test caller approved; its helper isn't paired, so test the reader there with `helper.sh read`.
 
 `find.sh` and `helper.sh read` each need Android's one UiAutomation connection: neither works while the other, or
 TabDesk's helper, is reading (it lets go 15 s after an agent's last call).
