@@ -336,10 +336,14 @@ class FolderPanel(private val act: HomeActivity, val item: DesktopItem, private 
             setPadding(dp(8), 0, dp(8), 0)
         }
         head.addView(title, llp(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f))
-        // Hold the title row (or right-click it) for the Folder View's menu; on the desktop, hold and move it to move it.
-        head.setOnTouchListener(PressHelper(head,
-            onLong = { v, _, _ -> act.folderViewMenu(item, v, this) },
-            onDrag = { _, x, y -> if (!popup && !inDock) act.desktop.startDrag(item, this, x + head.left, y + head.top) }))
+        // Hold the title row (or right-click it) for the Folder View's menu. On the desktop, hold and move it to move
+        // the panel; the empty space in the grid and the panel's edges do the same, so it's easy to grab.
+        val move: ((View, Float, Float) -> Unit)? = if (popup || inDock) null
+            else { v, x, y -> act.desktop.startDrag(item, this, x + v.left, y + v.top) }
+        head.setOnTouchListener(PressHelper(head, onLong = { v, _, _ -> act.folderViewMenu(item, v, this) }, onDrag = move))
+        if (move != null) setOnTouchListener(PressHelper(this,
+            onLong = { _, _, _ -> act.folderViewMenu(item, this, this) },
+            onDrag = { _, x, y -> act.desktop.startDrag(item, this, x, y) }))
         addView(head, llp(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT))
 
         grid.apply {
@@ -353,12 +357,13 @@ class FolderPanel(private val act: HomeActivity, val item: DesktopItem, private 
             setPadding(0, dp(2), 0, dp(6))
             adapter = Adapter()
         }
-        // Holding empty space in the grid (or right-clicking it) gives the Folder View's menu too.
-        val empty = PressHelper(grid, onLong = { _, x, y -> act.folderViewMenu(item, grid, this, x, y) })
+        // Holding empty space in the grid (or right-clicking it) gives the Folder View's menu too, and moving on
+        // from there moves the panel.
+        val empty = PressHelper(grid, onLong = { _, x, y -> act.folderViewMenu(item, grid, this, x, y) }, onDrag = move)
         grid.setOnTouchListener { _, e ->
             if (e.actionMasked == MotionEvent.ACTION_DOWN) emptyDown = grid.pointToPosition(e.x.toInt(), e.y.toInt()) == AdapterView.INVALID_POSITION
-            if (emptyDown) empty.handle(e)
-            false
+            // Once held, the grid doesn't scroll as well while the panel moves.
+            emptyDown && empty.handle(e) && empty.longPressed && e.actionMasked == MotionEvent.ACTION_MOVE
         }
         addView(grid, llp(ViewGroup.LayoutParams.MATCH_PARENT, 0, 1f))
 
