@@ -307,10 +307,15 @@ internal object ScreenTools {
         val w = r.optJSONArray("screen")?.optInt(0) ?: 0
         val h = r.optJSONArray("screen")?.optInt(1) ?: 0
         val names = LinkedHashSet<String>()
-        for (i in 0 until a.length()) {
-            val c = a.getJSONObject(i)
-            val pkg = c.optString("pkg").takeIf { it.isNotEmpty() && it != "null" }
-            val b = c.getJSONArray("bounds").let { Rect(it.getInt(0), it.getInt(1), it.getInt(2), it.getInt(3)) }
+        val all = (0 until a.length()).map { a.getJSONObject(it) }
+        fun pkgOf(c: JSONObject) = c.optString("pkg").takeIf { it.isNotEmpty() && it != "null" }
+        fun boundsOf(c: JSONObject) = c.getJSONArray("bounds").let { Rect(it.getInt(0), it.getInt(1), it.getInt(2), it.getInt(3)) }
+        for (c in all) {
+            val pkg = pkgOf(c)
+            val b = boundsOf(c)
+            // A window with no owner TabDesk can see, lying within one it can name, is part of that one: a floating
+            // window's title bar is such a window. It's still blacked out of the screenshot, as every cover is.
+            if (pkg == null && all.any { o -> o !== c && pkgOf(o) != null && Rect(boundsOf(o)).apply { inset(-2, -2) }.contains(b) }) continue
             names += when {
                 c.optString("type") == "keyboard" -> "the keyboard"
                 pkg != null && never[pkg] == "System UI" -> when {
@@ -318,6 +323,9 @@ internal object ScreenTools {
                     b.width().toLong() * b.height() > w.toLong() * h * 6 / 10 -> "the notification shade"
                     else -> "a notification"
                 }
+                // The gesture bar is the launcher's own window on some tablets (ZUI's, Pixel tablets' "Taskbar"),
+                // and the launcher is the Recents screen: a bar like System UI's, so it's left out too.
+                pkg != null && never[pkg] == "the Recents screen" && c.optString("type") == "system" && isBar(b, w, h) -> continue
                 pkg == ctx.packageName -> "TabDesk"
                 pkg != null && pkg in never -> never.getValue(pkg)
                 pkg != null && Agent.isAllowed(pkg) -> Agent.label(pkg)
