@@ -35,6 +35,8 @@ class AgentService : Service() {
         private const val MAX_ID = 200
         private const val RATE_PER_SECOND = 4
         private const val STREAM_STALL_MS = 10_000L
+        /** How long a call waits for the helper to connect before answering helper_not_running. */
+        private const val HELPER_WAIT_MS = 2_000L
 
         @Volatile private var instance: AgentService? = null
 
@@ -82,6 +84,9 @@ class AgentService : Service() {
         AgentLog.init(this)
         instance = this
         Agent.stateListeners += onState
+        // The service can start without the home screen, e.g. when Android restarts TabDesk's process for a caller
+        // after a crash: connect to the helper here too, or calls would wait for the home screen to come back.
+        if (dev.tabdesk.helper.Setup.ready(this)) HelperClient.ensure(this)
     }
 
     override fun onDestroy() {
@@ -281,7 +286,7 @@ class AgentService : Service() {
         val deadline = System.currentTimeMillis() + tool.longestMs
         var began = false
         val (result, front) = try {
-            val refusal = check(c)
+            val refusal = check(c, deadline)
             if (refusal != null) refusal to null
             else {
                 Agent.beginCall(c.pkg); began = true
@@ -300,8 +305,8 @@ class AgentService : Service() {
         if (!call.cancelled) answer(c, call.id, call, rpcResult(call.mcpId, result))
     }
 
-    /** Part 3's limits 1–5, which every tool so far checks. Null when the call may go ahead. */
-    private fun check(c: Caller): JSONObject? {
+    /** Part 3's limits 1–5, which every tool checks. Null when the call may go ahead. */
+    private fun check(c: Caller, deadline: Long): JSONObject? {
         val app = Agent.label(c.pkg)
         when (Agent.refusalFor(c.pkg, c.cert)) {
             "switched_off" -> return Tools.refused("switched_off", "Agent control is switched off on the tablet (TabDesk → Customize → Agent).")
@@ -321,6 +326,12 @@ class AgentService : Service() {
             while (c.recent.isNotEmpty() && now - c.recent.first() >= 1000) c.recent.removeFirst()
             if (c.recent.size >= RATE_PER_SECOND) return Tools.refused("rate_limited", "Too many calls: wait a second.")
             c.recent.addLast(now)
+        }
+        if (!HelperClient.connected && AdbKey.exists(this)) {
+            // It may just be connecting (a restarted TabDesk finds the running helper within a second or two).
+            HelperClient.ensure(this)
+            val until = minOf(System.currentTimeMillis() + HELPER_WAIT_MS, deadline - 300)
+            while (!HelperClient.connected && System.currentTimeMillis() < until) Thread.sleep(100)
         }
         if (!HelperClient.connected) return if (!AdbKey.exists(this))
             Tools.refused("helper_not_set_up", "TabDesk's helper isn't set up on this tablet (TabDesk → Customize → Helper).")
