@@ -27,7 +27,8 @@ import kotlin.concurrent.thread
  *
  * Commands (extra "cmd"): bind, unbind, version, status, connect, init, list, call (extras "tool", "args" JSON),
  * raw (extra "json" or "b64"), cancel (extra "id"), stop, resume, burst (extra "n": that many usage calls at once),
- * die (the process exits, as if it crashed), pw (shows a password field holding "hunter2", for the screen reader's tests).
+ * die (the process exits, as if it crashed), pw (shows a password field holding "hunter2", for the screen reader's tests),
+ * over (pw, then tools/seethrough's see-through card over it in this task).
  */
 class MainActivity : Activity() {
     private lateinit var out: TextView
@@ -64,6 +65,12 @@ class MainActivity : Activity() {
                 box.addView(android.widget.Button(this).apply { text = "Roll d20" })
                 setContentView(box)
             }
+            // The password screen, then tools/seethrough's see-through card over it in this same task.
+            "over" -> {
+                handle(Intent(i).putExtra("cmd", "pw"))
+                try { startActivity(Intent().setClassName("dev.tabdesk.seethrough", "dev.tabdesk.seethrough.Card")) }
+                catch (e: Exception) { Log.w(BuildConfig.TAG, "over: $e") }
+            }
             else -> Caller.handle(applicationContext, i)
         }
     }
@@ -76,7 +83,7 @@ class CommandReceiver : BroadcastReceiver() {
 
 /** The connection to TabDesk, kept for as long as the process lives, and the commands. */
 object Caller {
-    private const val TAG = "AgentCaller"
+    private val TAG = BuildConfig.TAG
     private var service: IAgentService? = null
     private var conn: ServiceConnection? = null
     private var next = 0

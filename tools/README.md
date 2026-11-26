@@ -91,6 +91,25 @@ tools/agentcaller/run.sh burst 6                  # six calls at once: the rate 
 tools/agentcaller/run.sh call open_app '{"app":"Clock"}'   # after switching Clock on in Customize → Agent
 tools/agentcaller/run.sh call screen '{"screenshot":"small"}'
 tools/agentcaller/run.sh pw                       # a password field holding "hunter2", to check it's never read
+tools/agentcaller/run.sh over                     # pw, with seethrough/'s see-through card over it in the same task
+TWO=1 tools/agentcaller/run.sh build              # a second caller ("Agent caller 2", logs as AgentCaller2), to
+TWO=1 tools/agentcaller/run.sh call apps          #   test two approved apps: busy, and Stop and Resume
 tools/agentcaller/run.sh build-alt                # the same app with another key (uninstall it first)
 tools/agentcaller/run.sh log
+```
+
+## seethrough/: a see-through window for screenshot tests
+
+A small app (package `dev.tabdesk.seethrough`, "See-through (test)") with one see-through activity: a yellow card
+in the middle of a translucent window, so whatever is under it shows around the card. Switch it on in Customize →
+Agent, then:
+
+```sh
+./gradlew -p tools/seethrough --offline assembleDebug
+adb -s emulator-5554 install -r tools/seethrough/build/outputs/apk/debug/SeeThrough-debug.apk
+adb -s emulator-5554 shell am start -n dev.tabdesk.seethrough/.Card   # in its own task: on Android 12L and later
+                                                                     # the picture is the card on black; before
+                                                                     # that, there's none
+tools/agentcaller/run.sh over                                        # over the caller in its task: no picture
+tools/agentcaller/run.sh call screen '{"screenshot":"large"}'
 ```
