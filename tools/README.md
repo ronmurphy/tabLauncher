@@ -40,7 +40,8 @@ it over adb as `emulator-5554`:
 **Snapshots:** a normal start loads the quick-boot snapshot `default_boot`, which puts the disk back as it was when
 that snapshot was saved. With `-no-snapshot-save` nothing new is saved, so whatever you installed or set since is gone
 at the next start. Save the snapshot before shutting down, as above, or start with `-no-snapshot-load` (a cold boot
-onto the current disk). TabDesk_A16's was saved 2026-11-26 01:49: the `agent-control` build (552fb77), the test
+onto the current disk). A snapshot loads only with the GPU mode it was saved with, so always start with
+`-gpu swiftshader_indirect` as above. TabDesk_A16's was saved 2026-11-26 01:49: the `agent-control` build (552fb77), the test
 caller approved, and Clock allowed in Customize → Agent.
 
 `find.sh` and `helper.sh read` each need Android's one UiAutomation connection: neither works while the other, or
