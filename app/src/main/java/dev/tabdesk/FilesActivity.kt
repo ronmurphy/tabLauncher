@@ -1015,16 +1015,6 @@ class FilesActivity : TabActivity() {
 
     // ------------------------------------------------------------ small views
 
-    private fun symbolButton(name: String, desc: String, onClick: (View) -> Unit) = TextView(this).symbolText(name, 22f, pal.text).apply {
-        background = rippleBg(pal.ripple, dpf(22)); contentDescription = desc; tooltipText = desc
-        setOnClickListener { onClick(it) }
-    }
-
-    private fun TextView.symbolText(name: String, size: Float, color: Int, fill: Boolean = false): TextView = apply {
-        typeface = Icons.symbolFont(this@FilesActivity, fill = fill); textSize = size; setTextColor(color); gravity = Gravity.CENTER
-        text = Icons.symbol(this@FilesActivity, name)?.text ?: "•"
-        includeFontPadding = false
-    }
 }
 
 /** A Material symbol as a drawable (menu icons). */

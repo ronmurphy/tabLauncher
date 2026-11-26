@@ -1,6 +1,7 @@
 <resources>
     <string name="app_name">TabDesk</string>
     <string name="files_name">TabDesk Files</string>
+    <string name="tasks_name">TabDesk Tasks</string>
     <string name="dots_service">TabDesk notification dots</string>
     <string name="awake_tile">Keep awake</string>
     <string name="lock_service">TabDesk screen lock</string>

@@ -1,5 +1,6 @@
 package dev.tabdesk
 
+import dev.tabdesk.helper.HelperClient
 import dev.tabdesk.icons.*
 import android.app.AppOpsManager
 import android.app.usage.UsageEvents
@@ -80,8 +81,9 @@ object Apps {
         exec.execute {
             val roles = if (spec.style != Icons.ORIGINAL) Icons.roles(appCtx, refresh = true) else emptyMap()
             val list = la.getActivityList(null, Process.myUserHandle())
-                // TabDesk's own entries aren't apps to launch from here, apart from TabDesk Files.
-                .filter { it.componentName.packageName != appCtx.packageName || it.componentName.className == FilesActivity::class.java.name }
+                // TabDesk's own entries aren't apps to launch from here, apart from TabDesk Files and TabDesk Tasks.
+                .filter { it.componentName.packageName != appCtx.packageName ||
+                    it.componentName.className in setOf(FilesActivity::class.java.name, TasksActivity::class.java.name) }
                 .map { info(it, size, spec, roles) }
             main.post {
                 if (my != seq) return@post
@@ -201,6 +203,8 @@ object Apps {
     fun get(key: String?): AppInfo? = key?.let { byKey[it] }
     fun visible() = all.filter { !Prefs.isHidden(it.key) }
     fun firstOf(pkg: String) = all.firstOrNull { it.pkg == pkg }
+    /** The app a running task belongs to (see [HelperClient.Task.isOf]). */
+    internal fun ofTask(t: HelperClient.Task) = all.firstOrNull { t.isOf(it) }
 
     fun shortcuts(app: AppInfo): List<ShortcutInfo> = try {
         if (!la.hasShortcutHostPermission()) emptyList()

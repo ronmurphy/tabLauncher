@@ -71,6 +71,7 @@ class HomeActivity : TabActivity() {
     private val setupListener: () -> Unit = { Customize.refreshIf(this, Customize.HELPER) }
     private val tasksListener: () -> Unit = { taskbar.bindRecents(force = false); taskbar.bindHelper(); Windows.track(this) }
     private val updatesListener: () -> Unit = { Customize.refreshIf(this, Customize.ABOUT) }
+    private val agentListener: () -> Unit = { taskbar.bindAgent(); Customize.refreshIf(this, Customize.AGENT) }
 
     private val batteryReceiver = object : BroadcastReceiver() {
         override fun onReceive(c: Context, i: Intent) {
@@ -127,6 +128,8 @@ class HomeActivity : TabActivity() {
         Setup.onChange = setupListener
         HelperClient.listeners += setupListener
         HelperClient.listeners += tasksListener
+        dev.tabdesk.agent.Agent.init(this)
+        dev.tabdesk.agent.Agent.listeners += agentListener
         if (Setup.ready(this)) HelperClient.ensure(this)
         Updates.onChange = updatesListener
         Updates.afterStart(this)
@@ -179,6 +182,7 @@ class HomeActivity : TabActivity() {
         if (Updates.onChange === updatesListener) Updates.onChange = null
         HelperClient.listeners -= setupListener
         HelperClient.listeners -= tasksListener
+        dev.tabdesk.agent.Agent.listeners -= agentListener
         Apps.listeners -= appsListener
         Badges.listeners -= badgeListener
         WallpaperManager.getInstance(this).removeOnColorsChangedListener(wallpaperListener)
@@ -580,7 +584,7 @@ class HomeActivity : TabActivity() {
         }
         // Running (the helper knows): minimise or restore, snap a floating window, and close it, as swiping it
         // away in Recents does.
-        val tasks = HelperClient.tasks.filter { it.pkg == app.pkg }
+        val tasks = HelperClient.tasks.filter { it.isOf(app) }
         if (tasks.any { it.running }) {
             e += MenuEntry.DIVIDER
             e += Windows.menuEntries(this, app)

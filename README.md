@@ -53,6 +53,7 @@ new `.apk` and open it, as when installing. Your setup is kept either way.
 | Folder View (panel, or in the dock) | tap a file / middle-click / long-press it | open it / open it in a floating window / Open · Open in a window · Open with · Share · Rename · Delete; long-press **and move** drags the file into another app, or onto another Folder View or TabDesk Files (Move here / Copy here); files dragged in from other apps are copied in. On the desktop, long-press the panel's title, empty space or edge **and move** to move the panel |
 | **TabDesk Files** (in Start, or a Folder View's long-press menu → Open in TabDesk Files) | tap | a file manager in a window of its own, which floats like any app: places at the left (under ☰ when the window is narrow), with your Folder Views' folders among them; Back, Up, the path (tap a part of it to go there), search in this folder, grid or list, and ⋮ for New folder · Paste here · Select all · sort by name / newest / largest · show hidden files · Put this folder on the desktop or in the dock |
 | A file or folder in TabDesk Files | tap / middle-click / long-press | open it / open it in a floating window / Open · Open in a window · Open with · Share · Select · Copy · Cut · Rename · Delete, and for a folder Put on the desktop · Put in the widget dock. With something selected, taps select more, and the top bar has Select all · Copy · Cut · Share · Delete; **Paste** at the bottom puts what you copied or cut in the folder you're in. Long-press **and move** drags files onto a folder or a Folder View (Move here / Copy here), or into another app, which gets a copy |
+| **TabDesk Tasks** (in Start; needs the helper) | tap an app | what's running, in a window of its own: CPU, memory and battery at the top, then each app's share of the CPU over the last moment and the memory it uses, busiest first (the button at the top right sorts by memory instead). Tap an app for Open · Close its windows · App info (Force stop is there). TabDesk's own row is the home screen, Files and the helper together. Without the helper it says so, with a button to set it up |
 | Start A–Z bar | tap a letter / number | shows only apps starting with it (tap again or Back for all); only characters your apps start with appear |
 | Start search | type, then Enter | opens the top hit, or searches the web |
 | Start search | a sum, e.g. `12*8+4`, `(2+3)^2/4`, `200*15%` | the answer at the top; tap it to copy |
@@ -106,6 +107,11 @@ the tablet is rotated:
   desktop (one swipe from the top shows it, a second opens Lenovo's quick-settings panel),
   notification dots, default home app
 - **Helper**: setting up the running-apps helper, step by step, and whether it's running
+- **Agent**: letting an app such as DroidACP give an AI agent use of the tablet: the master switch (off
+  by default), the apps that asked and the approved ones (each approval lasts a week; Keep allowing
+  renews it, Revoke takes it back), the apps the agent may read and open (none until you switch them
+  on), whether it may see the names of running apps or wake the screen, the tablet's name, and a log of
+  the recent calls. See [Agent control](#agent-control)
 - **Backup**: export, import, undo import
 
 Start shows a "Recently added" section for apps installed in the last 14 days.
@@ -113,7 +119,8 @@ Start shows a "Recently added" section for apps installed in the last 14 days.
 **Running apps (the helper).** Android doesn't let an app see which other apps are running, but adb
 can. TabDesk pairs with the tablet's own wireless debugging, the way a computer would, and starts a
 small helper process through it. The helper tells TabDesk whenever apps open, move or close, and
-closes, minimises, restores and resizes windows when asked. With it, the taskbar shows the apps that
+closes, minimises, restores and resizes windows when asked, and measures how busy each app is for
+TabDesk Tasks. With it, the taskbar shows the apps that
 are running (after the pins, which get the same mark): a short grey line under a running app, a
 longer one in the accent colour while it's on screen, e.g. in a floating window, and a tap minimises
 or restores it (see Floating windows). Without it, the taskbar shows recently used apps instead.
@@ -247,10 +254,14 @@ adb shell cmd package set-home-activity com.zui.launcher/.drawer.DrawerLauncher
 ## Code map (`app/src/main/java/dev/tabdesk/`)
 
 - `HomeActivity.kt`: window/insets, layers, launching, context menus, back/home handling
-- `TabActivity.kt`: what the home screen and TabDesk Files share (colours, menus and dialogs, floating launches)
+- `TabActivity.kt`: what the home screen, TabDesk Files and TabDesk Tasks share (colours, menus and dialogs,
+  floating launches)
 - `FilesActivity.kt`: TabDesk Files, the file manager window. It runs in a process and task of its own
   (`:files`), reads TabDesk's settings without changing them, and asks the home screen for a new Folder View
   with a broadcast only TabDesk can send (`dev.tabdesk.permission.FOLDER_VIEWS`)
+- `TasksActivity.kt`: TabDesk Tasks, the what's-running window. It runs in the home screen's process (it needs
+  the helper connection) but in a task of its own, and asks the helper for a sample every few seconds while
+  it's on screen
 - `Desktop.kt`: snap-to-grid desktop (icons, shortcuts, widgets), drag & drop, widget resize
 - `DesktopItem.kt`: what's on the desktop (apps, shortcuts, widgets, folders) and how it's saved
 - `Shell.kt`: taskbar (pins, battery, clock) and Start menu (A–Z list, search, footer)
@@ -278,7 +289,21 @@ adb shell cmd package set-home-activity com.zui.launcher/.drawer.DrawerLauncher
 `customize/`: the Customize panel (long-press or right-click Start)
 
 - `Customize.kt`: the panel itself (tabs down the side or across the top, remembering tab and scroll) and the shared rows (sections, notes, sliders, switches)
-- `LookPage.kt`, `IconsPage.kt`, `DesktopPage.kt`, `TaskbarPage.kt`, `SystemPage.kt`, `HelperPage.kt`, `BackupPage.kt`, `AboutPage.kt`: one file per tab
+- `LookPage.kt`, `IconsPage.kt`, `DesktopPage.kt`, `TaskbarPage.kt`, `SystemPage.kt`, `HelperPage.kt`, `AgentPage.kt`, `BackupPage.kt`, `AboutPage.kt`: one file per tab
+
+`agent/`: agent control (`docs/agent-control.md`); the Binder interface is in `app/src/main/aidl/`
+
+- `AgentService.kt`: the bound service: who the caller is (its UID and signing certificate), the MCP
+  messages, the checks before each call, one call at a time per caller, answers by reply or by pipe
+- `Agent.kt`: the master switch, approvals and their weekly renewal, who is using the tablet now (idle,
+  active, stopped), and the notifications; kept in `no_backup/`, so no backup carries an approval over
+- `Tools.kt`: the tool list, the tools `apps`, `open_app` and `usage`, and the shapes of results and refusals
+- `ScreenTools.kt`: `screen` and `get_item`: the checks before a read (screen on and unlocked, an allowed app
+  in front), turning what the helper read into the agent's items, and the last read for item ids
+- `Never.kt`: the apps the agent can never read or use, worked out on the tablet
+- `AgentLog.kt`: the last 500 calls, without what was read
+- `AgentReceiver.kt`, `AgentSettingsActivity.kt`: Stop and Continue on the notification and the weekly
+  alarm; `dev.tabdesk.action.AGENT_SETTINGS`, which opens Customize → Agent
 
 `helper/`: the running-apps helper
 
@@ -289,8 +314,9 @@ adb shell cmd package set-home-activity com.zui.launcher/.drawer.DrawerLauncher
 - `Device.kt`: which maker's Android this is (OxygenOS, HyperOS, One UI, ZUI…), for maker-specific steps
 - `Adb.kt`: running commands through wireless debugging, switching it on for the moment if it's off, and
   remembering its port (Android 12 stops announcing it soon after pairing)
-- `Helper.kt`: the helper itself, run as the shell user with `app_process`: watches tasks, serves TabDesk on 127.0.0.1
-- `HelperClient.kt`: TabDesk's side: starts the helper (at startup, after a restart, when a new version is installed), stays connected, and passes on the running tasks
+- `Helper.kt`: the helper itself, run as the shell user with `app_process`: watches tasks, measures CPU and memory
+  per app, serves TabDesk on 127.0.0.1
+- `HelperClient.kt`: TabDesk's side: starts the helper (at startup, after a restart, when a new version is installed), stays connected, and passes on the running tasks and the usage samples
 
 `icons/`: everything about app icons
 
@@ -302,8 +328,9 @@ adb shell cmd package set-home-activity com.zui.launcher/.drawer.DrawerLauncher
 - `IconThemes.kt`: saved icon themes (starters, apply with undo, rename, delete, export / import)
 - `IconPacks.kt`: finding installed icon packs and reading them (appfilter, theming layers, drawable list, picker thumbnails)
 
-Outside the app: `tools/` has the adb test helpers, the font scripts, a test icon pack and a stand-in for
-the tablet's pairing service (see
+Outside the app: `tools/` has the adb test helpers, the font scripts, a test icon pack, a stand-in for
+the tablet's pairing service, and `tools/agentcaller/`, a test app that calls the agent service as
+DroidACP would (`tools/agentcaller/run.sh`; see
 `tools/README.md`); `archive/` keeps local snapshots of the source from before big changes.
 
 ## How the helper works
@@ -331,13 +358,50 @@ the tablet's pairing service (see
   - `resize <task> l t r b`: `resizeTask`, as `am task resize` does (floating windows only).
   - `shot <task> <px>`: the window's last snapshot (`getTaskSnapshot`, else `takeTaskSnapshot`), scaled
     and sent back as a base64 JPEG on one line, off the reading thread.
+  - `usage <ms>`: reads `/proc/<pid>/stat` and `statm` for every process twice, `<ms>` apart (the shell
+    user may read them all), and answers with the CPU's busy share, how long since the screen was last
+    touched (`dumpsys power`), and per app (by uid; system processes together as "android") its CPU share,
+    CPU time, resident memory and process names. It runs on a thread of its own, so task updates keep
+    coming meanwhile.
   - `ping`, `quit`.
-  Each task in the list also carries its windowing mode, whether it has focus, and its bounds.
+  Each task in the list also carries its windowing mode, whether it has focus, its bounds, and the
+  activity it was started with (TabDesk's own windows, Files and Tasks, share one package).
   `tools/emulator/helper.sh tasks|min|front|resize|shot …` runs the same calls from a computer.
 - **Lifetime**: the helper is in adb's process group, so it ends when adb does. adb runs while USB or
   wireless debugging is on, so with USB debugging on, wireless debugging can be switched off again.
   TabDesk replaces a helper left from an older version (it reports a build id), and if the helper
   stops, tries again after 5 s, 30 s, 2 min, then every 10 min, or when Wi-Fi comes back.
+
+## Agent control
+
+Another app on the tablet can let an AI agent use it through TabDesk; the first is DroidACP, which relays
+for Claude Code on a computer. TabDesk is the only part that reads, and it decides what's allowed. The
+interface is in `docs/agent-control.md` (released with this code), and the plan shared by the three apps
+is kept outside the repo.
+
+- **Off until you say so:** Customize → Agent → "Let apps use this tablet". An app asks when you switch
+  on its own tablet setting; TabDesk then posts "<app> wants to use this tablet", and you approve it on
+  that page, never in a pop-up. An approval is tied to the app's signing certificate and lasts a week;
+  TabDesk reminds you the day before, and Keep allowing gives it another week.
+- **What an agent can do so far:** read the app in front if you've allowed it (`screen`: its buttons,
+  text and fields, optionally with a screenshot of that app alone; `get_item`), open an app you've
+  allowed (`open_app`), list them (`apps`), and see how busy the tablet is (`usage`: the CPU, memory and
+  battery, and each running app's share, as TabDesk Tasks shows them). An app you haven't allowed shows
+  as "blocked app" unless you switch on "Let the agent see which apps are running". Tapping and typing
+  come later.
+- **How it reads:** TabDesk's helper reads the screen through Android's UiAutomation (as `uiautomator`
+  does), only while an app is using the tablet, and only the allowed app in front. It never reads a
+  password field's text. Windows over the app (the keyboard, a notification, another app) are named
+  only as far as you've allowed, and blacked out of screenshots, as is the status bar. If the app's
+  window is see-through and another app could show through it, there's no screenshot at all.
+- **Never:** TabDesk itself (home screen, Files, Tasks, Customize), System UI, Settings, the keyboard,
+  Google Play services, the file picker, package installers, or any app that asked to use the tablet
+  (dismissing it from "Apps that asked" doesn't change that).
+- **While an app is using it,** the taskbar and a notification say so, with **Stop**. Stop refuses
+  everything until you send your next chat message or tap Continue. Another approved app gets "busy"
+  meanwhile, and can't stop or resume it.
+- **Every call is logged** (the last 500, in Customize → Agent): when, which app, what it asked for,
+  and the outcome, never what was read.
 
 ## Floating windows
 

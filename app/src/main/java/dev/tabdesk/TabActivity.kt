@@ -5,8 +5,12 @@ import android.app.ActivityOptions
 import android.content.Intent
 import android.graphics.Rect
 import android.os.Bundle
+import android.view.Gravity
+import android.view.View
 import android.view.WindowInsets
+import android.widget.TextView
 import android.widget.Toast
+import dev.tabdesk.icons.Icons
 
 /**
  * What TabDesk's windows share: the home screen ([HomeActivity]) and TabDesk Files ([FilesActivity]). Menus, dialogs
@@ -18,6 +22,19 @@ abstract class TabActivity : Activity() {
 
     /** A floating window covers this one, so menus go in a window above it (only the home screen does that). */
     open val coveredByWindows: Boolean get() = false
+
+    /** A Material symbol as the text of this view (icon buttons, badges). */
+    fun TextView.symbolText(name: String, size: Float, color: Int, fill: Boolean = false): TextView = apply {
+        typeface = Icons.symbolFont(this@TabActivity, fill = fill); textSize = size; setTextColor(color); gravity = Gravity.CENTER
+        text = Icons.symbol(this@TabActivity, name)?.text ?: "•"
+        includeFontPadding = false
+    }
+
+    /** A round icon button for a window's top bar; [desc] is its tooltip and what screen readers say. */
+    fun symbolButton(name: String, desc: String, onClick: (View) -> Unit) = TextView(this).symbolText(name, 22f, pal.text).apply {
+        background = rippleBg(pal.ripple, dpf(22)); contentDescription = desc; tooltipText = desc
+        setOnClickListener { onClick(it) }
+    }
 
     fun hideIme() { window.insetsController?.hide(WindowInsets.Type.ime()) }
 
@@ -34,17 +51,19 @@ abstract class TabActivity : Activity() {
     }
 
     /** Options that open an activity in a floating (freeform) window, centred and sized for the orientation. */
-    fun floatingOptions(): Bundle {
-        val b = windowManager.currentWindowMetrics.bounds
-        val land = b.width() > b.height()
-        val w = (b.width() * if (land) 0.5f else 0.74f).toInt()
-        val h = (b.height() * if (land) 0.74f else 0.5f).toInt()
-        val l = (b.width() - w) / 2
-        val t = ((b.height() - h) / 2.6f).toInt()
-        val opts = ActivityOptions.makeBasic().setLaunchBounds(Rect(l, t, l + w, t + h)).toBundle()
-        // Launch bounds alone are ignored unless the window is freeform. The setter for that is hidden API
-        // (blocked on Android 15), but the system reads the mode from this bundle key, so set it directly.
-        opts.putInt("android.activity.windowingMode", 5 /* WINDOWING_MODE_FREEFORM */)
-        return opts
-    }
+    fun floatingOptions(): Bundle = floatingOptions(windowManager.currentWindowMetrics.bounds)
+}
+
+/** Options that open an activity in a floating (freeform) window on a screen of [b], centred and sized for it. */
+fun floatingOptions(b: Rect): Bundle {
+    val land = b.width() > b.height()
+    val w = (b.width() * if (land) 0.5f else 0.74f).toInt()
+    val h = (b.height() * if (land) 0.74f else 0.5f).toInt()
+    val l = (b.width() - w) / 2
+    val t = ((b.height() - h) / 2.6f).toInt()
+    val opts = ActivityOptions.makeBasic().setLaunchBounds(Rect(l, t, l + w, t + h)).toBundle()
+    // Launch bounds alone are ignored unless the window is freeform. The setter for that is hidden API
+    // (blocked on Android 15), but the system reads the mode from this bundle key, so set it directly.
+    opts.putInt("android.activity.windowingMode", 5 /* WINDOWING_MODE_FREEFORM */)
+    return opts
 }

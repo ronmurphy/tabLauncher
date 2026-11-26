@@ -151,6 +151,8 @@ object G {
     const val EQUALS = 26; const val FOLDER = 27; const val LOCK = 28; const val SAVE = 29; const val PALETTE = 30
     const val PULSE = 31; const val MINIMISE = 32; const val SNAP_LEFT = 33; const val SNAP_RIGHT = 34
     const val SNAP_TOP = 35; const val SNAP_BOTTOM = 36; const val RESTORE = 37; const val DESKTOP = 38
+    /** Customize → Agent: a small robot head. */
+    const val AGENT = 39
 }
 
 class Glyph(private val kind: Int, color: Int) : Drawable() {
@@ -270,6 +272,10 @@ class Glyph(private val kind: Int, color: Int) : Drawable() {
             G.RESTORE -> { c.rr(8f, 3.5f, 20.5f, 14.5f, 2f); poly(8f, 9.5f, 3.5f, 9.5f, 3.5f, 20.5f, 14.5f, 20.5f, 14.5f, 14.5f); c.drawPath(p, s) }
             // Show desktop: a screen with the windows gone, only the taskbar left.
             G.DESKTOP -> { c.rr(3f, 4.5f, 21f, 19.5f, 2.5f); c.line(3f, 16f, 21f, 16f); c.drawCircle(6.5f, 17.8f, 0.9f, f) }
+            G.AGENT -> {
+                c.rr(4.5f, 8.5f, 19.5f, 20f, 3.5f); c.line(12f, 8.5f, 12f, 5.5f); c.drawCircle(12f, 4.3f, 1.3f, f)
+                c.drawCircle(9.2f, 13.3f, 1.3f, f); c.drawCircle(14.8f, 13.3f, 1.3f, f); c.line(9.8f, 16.8f, 14.2f, 16.8f)
+            }
             G.EQUALS -> { c.line(6f, 9.5f, 18f, 9.5f); c.line(6f, 14.5f, 18f, 14.5f) }
             G.FOLDER -> {
                 poly(3f, 6.5f, 3f, 18.5f, 21f, 18.5f, 21f, 8.5f, 11.5f, 8.5f, 9.5f, 5.5f, 4f, 5.5f, close = true); c.drawPath(p, s)

@@ -13,7 +13,7 @@
         <item name="android:windowSplashScreenAnimatedIcon">@android:color/transparent</item>
     </style>
 
-    <!-- TabDesk Files: an ordinary app window (no wallpaper); TabDesk draws its own bars and colours. -->
+    <!-- TabDesk Files and TabDesk Tasks: ordinary app windows (no wallpaper); TabDesk draws its own bars and colours. -->
     <style name="Theme.TabDesk.Files" parent="@android:style/Theme.DeviceDefault.DayNight">
         <item name="android:windowActionBar">false</item>
         <item name="android:windowNoTitle">true</item>

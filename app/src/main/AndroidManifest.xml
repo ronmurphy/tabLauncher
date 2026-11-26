@@ -106,12 +106,60 @@
             </intent-filter>
         </activity>
 
+        <!-- TabDesk Tasks: what each app is using (through the helper), in a window of its own that can float. It
+             runs in the home screen's process, which holds the one connection to the helper. -->
+        <activity
+            android:name=".TasksActivity"
+            android:configChanges="orientation|screenSize|screenLayout|smallestScreenSize|keyboard|keyboardHidden|navigation"
+            android:exported="true"
+            android:icon="@mipmap/ic_tasks"
+            android:label="@string/tasks_name"
+            android:launchMode="singleTask"
+            android:resizeableActivity="true"
+            android:taskAffinity="dev.tabdesk.tasks"
+            android:theme="@style/Theme.TabDesk.Files">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+        </activity>
+
         <!-- Hands one file to the app the user opens, shares or drags it to from a Folder View (read only). -->
         <provider
             android:name=".FilesProvider"
             android:authorities="dev.tabdesk.files"
             android:exported="false"
             android:grantUriPermissions="true" />
+        <!-- Agent control (docs/agent-control.md): the service another app binds to let an agent use this tablet.
+             Any app may bind it and ask its status; only the app the user approves in Customize → Agent gets more. -->
+        <service
+            android:name=".agent.AgentService"
+            android:exported="true"
+            tools:ignore="ExportedService">
+            <intent-filter>
+                <action android:name="dev.tabdesk.action.AGENT" />
+            </intent-filter>
+        </service>
+
+        <!-- Opens Customize → Agent, e.g. from DroidACP's "Not approved yet" button. Opening it approves nothing. -->
+        <activity
+            android:name=".agent.AgentSettingsActivity"
+            android:excludeFromRecents="true"
+            android:exported="true"
+            android:noHistory="true"
+            android:taskAffinity=""
+            android:theme="@android:style/Theme.NoDisplay">
+            <intent-filter>
+                <action android:name="dev.tabdesk.action.AGENT_SETTINGS" />
+                <category android:name="android.intent.category.DEFAULT" />
+            </intent-filter>
+        </activity>
+
+        <!-- Stop and Continue on the "is using the tablet" notification, and the approvals' weekly alarm. -->
+        <receiver
+            android:name=".agent.AgentReceiver"
+            android:exported="false" />
+
         <!-- Accepts "Add to Home screen" shortcut requests (e.g. from Chrome). -->
         <activity
             android:name=".PinActivity"
