@@ -34,7 +34,14 @@ it over adb as `emulator-5554`:
     tools/emulator/helper.sh read - - -1 1024   # what an agent reads of the app in front, with a 1024 px picture
                                                 # (then: adb exec-out cat /data/local/tmp/read.jpg > read.jpg)
     tools/emulator/helper.sh windows            # the windows on screen: type, layer, task, bounds, package
-    adb -s emulator-5554 emu kill               # shut it down (its data is kept)
+    adb -s emulator-5554 emu avd snapshot save default_boot   # keep what you set up (see below)
+    adb -s emulator-5554 emu kill               # shut it down
+
+**Snapshots:** a normal start loads the quick-boot snapshot `default_boot`, which puts the disk back as it was when
+that snapshot was saved. With `-no-snapshot-save` nothing new is saved, so whatever you installed or set since is gone
+at the next start. Save the snapshot before shutting down, as above, or start with `-no-snapshot-load` (a cold boot
+onto the current disk). TabDesk_A16's was saved 2026-11-26 01:49: the `agent-control` build (552fb77), the test
+caller approved, and Clock allowed in Customize → Agent.
 
 `find.sh` and `helper.sh read` each need Android's one UiAutomation connection: neither works while the other, or
 TabDesk's helper, is reading (it lets go 15 s after an agent's last call).
