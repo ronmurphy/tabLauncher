@@ -58,3 +58,20 @@ Needs pyOpenSSL (`python3 -m venv venv && venv/bin/pip install pyopenssl`). To p
 apps, a calendar icon per day, `iconback`/`iconmask`/`iconupon` layers for the apps it doesn't
 cover, and 400 one-colour shapes for the Change icon picker. Install with `adb install -r`,
 remove with `adb uninstall dev.tabdesk.testpack`. `testpack-src.tgz` has its manifest and resources.
+
+## agentcaller/: a test caller for agent control
+
+A small app (package `dev.tabdesk.agentcaller`, "Agent caller (test)") that binds TabDesk's agent service and
+sends it MCP messages the way DroidACP does (plan T9, `docs/agent-control.md`). It's a separate Gradle project,
+so TabDesk's own build never includes it. Everything it hears is logged with the tag `AgentCaller`.
+
+```sh
+export SERIAL=emulator-5554                       # never the user's tablet before the branch's review
+tools/agentcaller/run.sh build                    # build and install (this computer's debug key)
+tools/agentcaller/run.sh bind; tools/agentcaller/run.sh connect; tools/agentcaller/run.sh status
+tools/agentcaller/run.sh call usage '{"limit":5}' # then approve it in Customize → Agent and call again
+tools/agentcaller/run.sh cancel c1:4              # the ids it logs
+tools/agentcaller/run.sh burst 6                  # six calls at once: the rate limit refuses two
+tools/agentcaller/run.sh build-alt                # the same app with another key (uninstall it first)
+tools/agentcaller/run.sh log
+```

@@ -221,5 +221,5 @@ object Backup {
 
 /** The app's version name, for the Customize footer and backup files. */
 object BuildInfo {
-    fun version(act: HomeActivity): String = try { act.packageManager.getPackageInfo(act.packageName, 0).versionName ?: "" } catch (e: Exception) { "" }
+    fun version(ctx: android.content.Context): String = try { ctx.packageManager.getPackageInfo(ctx.packageName, 0).versionName ?: "" } catch (e: Exception) { "" }
 }

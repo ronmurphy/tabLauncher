@@ -137,7 +137,18 @@ internal object HelperClient {
      * processes an app started under a throwaway uid (and the helper, which is TabDesk's), "android" for the system.
      * [cpu]: per mille of the whole device. [cpuSeconds]: CPU time in all since its processes started. [memKb]: RAM.
      */
-    class AppUsage(val owner: String, val cpu: Int, val cpuSeconds: Long, val memKb: Long, val names: List<String>)
+    class AppUsage(val owner: String, val cpu: Int, val cpuSeconds: Long, val memKb: Long, val names: List<String>) {
+        /** The app these processes belong to, by their uid or the package their name starts with; null for Android's own. */
+        fun packageIn(pm: android.content.pm.PackageManager): String? = when {
+            owner == "android" -> null
+            owner.startsWith("p") -> owner.drop(1)
+            else -> owner.drop(1).toIntOrNull()?.let { uid ->
+                val pkgs = try { pm.getPackagesForUid(uid).orEmpty() } catch (_: Exception) { emptyArray() }
+                // Several packages can share a uid; the one its processes are named after is the one to show.
+                pkgs.firstOrNull { p -> names.any { it == p || it.startsWith("$p:") } } ?: pkgs.firstOrNull()
+            }
+        }
+    }
 
     /** [busy]: the whole device, per mille. [idleMs]: since the user last touched it (-1: unknown). */
     class Usage(val sampleMs: Long, val cpus: Int, val busy: Int, val idleMs: Long, val apps: List<AppUsage>)

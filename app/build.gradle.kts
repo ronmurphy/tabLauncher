@@ -46,6 +46,8 @@ android {
         sourceCompatibility = JavaVersion.VERSION_17
         targetCompatibility = JavaVersion.VERSION_17
     }
+    // Agent control's Binder interface (src/main/aidl, as docs/agent-control.md gives it to calling apps).
+    buildFeatures { aidl = true }
     packaging { resources.excludes += "/META-INF/*.version" }
     dependenciesInfo { includeInApk = false; includeInBundle = false }
     lint { checkReleaseBuilds = false }

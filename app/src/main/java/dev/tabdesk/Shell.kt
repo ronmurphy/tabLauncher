@@ -1,5 +1,7 @@
 package dev.tabdesk
 
+import dev.tabdesk.agent.Agent
+import dev.tabdesk.agent.AgentService
 import dev.tabdesk.customize.Customize
 import dev.tabdesk.helper.AdbKey
 import dev.tabdesk.helper.HelperClient
@@ -52,6 +54,10 @@ class Taskbar(private val act: HomeActivity) : LinearLayout(act) {
     private val helperIcon = FrameLayout(act)
     private val desktopBtn = FrameLayout(act)
     private val dockBtn = FrameLayout(act)
+    /** "<app> is using the tablet" with Stop, while an app lets an agent use it (agent control). */
+    private val agentPill = LinearLayout(act)
+    private val agentText = TextView(act)
+    private val agentBtn = RoomyText(act)
 
     /** Lit while the widget dock is open. */
     fun setDockActive(on: Boolean) {
@@ -102,6 +108,26 @@ class Taskbar(private val act: HomeActivity) : LinearLayout(act) {
         strip.addView(recentDivider, llp(1, s(22)).apply { setMargins(dp(6), 0, dp(6), 0) })
         strip.addView(recents, llp(WRAP, MATCH))
         addView(strip, llp(0, MATCH, 1f))
+
+        // While an app lets an agent use the tablet: who, and Stop (Continue once stopped). The agent can never
+        // read or tap the taskbar, so only a person can press it.
+        agentPill.apply {
+            orientation = HORIZONTAL
+            gravity = Gravity.CENTER_VERTICAL
+            background = rounded(withAlpha(pal.accent, 0x33), dpf(16))
+            setPadding(dp(12), 0, dp(4), 0)
+            setOnClickListener { act.showSettings(Customize.AGENT) }
+            addView(agentText.apply { label(pal.text, 13f); isSingleLine = true; ellipsize = TextUtils.TruncateAt.END },
+                llp(WRAP, WRAP).apply { marginEnd = dp(8) })
+            addView(agentBtn.apply {
+                label(pal.onAccent, 13f, bold = true); gravity = Gravity.CENTER
+                setPadding(dp(12), 0, dp(12), 0)
+                background = rounded(pal.accent, dpf(13))
+                setOnClickListener { if (Agent.control == Agent.ACTIVE) AgentService.stopFromTabDesk() else Agent.resume() }
+            }, llp(WRAP, dp(28)))
+            visibility = GONE
+        }
+        addView(agentPill, llp(WRAP, dp(36)).apply { marginEnd = dp(6) })
 
         // The widget dock: widgets and Folder Views in a panel at the right, kept off the desktop.
         dockBtn.apply {
@@ -157,6 +183,15 @@ class Taskbar(private val act: HomeActivity) : LinearLayout(act) {
         }
         addView(desktopBtn, llp(s(34), s(44)))
         bindHelper()
+        bindAgent()
+    }
+
+    fun bindAgent() {
+        val state = Agent.control
+        if (state == Agent.IDLE || Agent.controller == null) { agentPill.visibility = GONE; return }
+        agentPill.visibility = VISIBLE
+        agentText.text = Agent.usingText()
+        agentBtn.text = if (state == Agent.ACTIVE) "Stop" else "Continue"
     }
 
     fun bindHelper() {

@@ -107,6 +107,10 @@ the tablet is rotated:
   desktop (one swipe from the top shows it, a second opens Lenovo's quick-settings panel),
   notification dots, default home app
 - **Helper**: setting up the running-apps helper, step by step, and whether it's running
+- **Agent**: letting an app such as DroidACP give an AI agent use of the tablet: the master switch (off
+  by default), the apps that asked and the approved ones (each approval lasts a week; Keep allowing
+  renews it, Revoke takes it back), whether the agent may see the names of running apps, the tablet's
+  name, and a log of the recent calls. See [Agent control](#agent-control)
 - **Backup**: export, import, undo import
 
 Start shows a "Recently added" section for apps installed in the last 14 days.
@@ -284,7 +288,19 @@ adb shell cmd package set-home-activity com.zui.launcher/.drawer.DrawerLauncher
 `customize/`: the Customize panel (long-press or right-click Start)
 
 - `Customize.kt`: the panel itself (tabs down the side or across the top, remembering tab and scroll) and the shared rows (sections, notes, sliders, switches)
-- `LookPage.kt`, `IconsPage.kt`, `DesktopPage.kt`, `TaskbarPage.kt`, `SystemPage.kt`, `HelperPage.kt`, `BackupPage.kt`, `AboutPage.kt`: one file per tab
+- `LookPage.kt`, `IconsPage.kt`, `DesktopPage.kt`, `TaskbarPage.kt`, `SystemPage.kt`, `HelperPage.kt`, `AgentPage.kt`, `BackupPage.kt`, `AboutPage.kt`: one file per tab
+
+`agent/`: agent control (`docs/agent-control.md`); the Binder interface is in `app/src/main/aidl/`
+
+- `AgentService.kt`: the bound service: who the caller is (its UID and signing certificate), the MCP
+  messages, the checks before each call, one call at a time per caller, answers by reply or by pipe
+- `Agent.kt`: the master switch, approvals and their weekly renewal, who is using the tablet now (idle,
+  active, stopped), and the notifications; kept in `no_backup/`, so no backup carries an approval over
+- `Tools.kt`: the tool list and the tools (`apps`, `usage`), and the shapes of results and refusals
+- `Never.kt`: the apps the agent can never read or use, worked out on the tablet
+- `AgentLog.kt`: the last 500 calls, without what was read
+- `AgentReceiver.kt`, `AgentSettingsActivity.kt`: Stop and Continue on the notification and the weekly
+  alarm; `dev.tabdesk.action.AGENT_SETTINGS`, which opens Customize → Agent
 
 `helper/`: the running-apps helper
 
@@ -309,8 +325,9 @@ adb shell cmd package set-home-activity com.zui.launcher/.drawer.DrawerLauncher
 - `IconThemes.kt`: saved icon themes (starters, apply with undo, rename, delete, export / import)
 - `IconPacks.kt`: finding installed icon packs and reading them (appfilter, theming layers, drawable list, picker thumbnails)
 
-Outside the app: `tools/` has the adb test helpers, the font scripts, a test icon pack and a stand-in for
-the tablet's pairing service (see
+Outside the app: `tools/` has the adb test helpers, the font scripts, a test icon pack, a stand-in for
+the tablet's pairing service, and `tools/agentcaller/`, a test app that calls the agent service as
+DroidACP would (`tools/agentcaller/run.sh`; see
 `tools/README.md`); `archive/` keeps local snapshots of the source from before big changes.
 
 ## How the helper works
@@ -351,6 +368,28 @@ the tablet's pairing service (see
   wireless debugging is on, so with USB debugging on, wireless debugging can be switched off again.
   TabDesk replaces a helper left from an older version (it reports a build id), and if the helper
   stops, tries again after 5 s, 30 s, 2 min, then every 10 min, or when Wi-Fi comes back.
+
+## Agent control
+
+Another app on the tablet can let an AI agent use it through TabDesk; the first is DroidACP, which relays
+for Claude Code on a computer. TabDesk is the only part that reads, and it decides what's allowed. The
+interface is in `docs/agent-control.md` (released with this code), and the plan shared by the three apps
+is kept outside the repo.
+
+- **Off until you say so:** Customize → Agent → "Let apps use this tablet". An app asks when you switch
+  on its own tablet setting; TabDesk then posts "<app> wants to use this tablet", and you approve it on
+  that page, never in a pop-up. An approval is tied to the app's signing certificate and lasts a week;
+  TabDesk reminds you the day before, and Keep allowing gives it another week.
+- **What an agent can do so far:** `apps` (the apps you allow, and which app is in front) and `usage`
+  (the CPU, memory and battery, and each running app's share, as TabDesk Tasks shows them). An app you
+  haven't allowed shows as "blocked app" unless you switch on "Let the agent see which apps are running".
+  Reading the screen of apps you allow comes next.
+- **Never:** TabDesk itself (home screen, Files, Tasks, Customize), System UI, Settings, the keyboard,
+  Google Play services, the file picker, package installers, or any app that asked to use the tablet.
+- **While an app is using it,** the taskbar and a notification say so, with **Stop**. Stop refuses
+  everything until you send your next chat message or tap Continue.
+- **Every call is logged** (the last 500, in Customize → Agent): when, which app, what it asked for,
+  and the outcome, never what was read.
 
 ## Floating windows
 

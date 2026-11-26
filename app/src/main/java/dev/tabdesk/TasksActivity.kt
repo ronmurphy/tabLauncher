@@ -261,15 +261,7 @@ class TasksActivity : TabActivity() {
     /** Which app a group of processes is, by its uid or the package its name starts with. */
     private fun whoIs(a: HelperClient.AppUsage): Who = who.getOrPut(a.owner) {
         val pm = packageManager
-        val pkg = when {
-            a.owner == "android" -> null
-            a.owner.startsWith("p") -> a.owner.drop(1)
-            else -> a.owner.drop(1).toIntOrNull()?.let { uid ->
-                val pkgs = pm.getPackagesForUid(uid).orEmpty()
-                // Several packages can share a uid; the one its processes are named after is the one to show.
-                pkgs.firstOrNull { p -> a.names.any { it == p || it.startsWith("$p:") } } ?: pkgs.firstOrNull()
-            }
-        }
+        val pkg = a.packageIn(pm)
         if (pkg == null) return@getOrPut Who(null, if (a.owner == "android") "Android system" else a.names.first(), null)
         // TabDesk's own launcher entries are Files and Tasks, so its row takes the app's own name and icon.
         if (pkg == packageName) return@getOrPut Who(pkg, getString(R.string.app_name), pm.getApplicationIcon(applicationInfo))
