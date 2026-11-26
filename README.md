@@ -53,6 +53,7 @@ new `.apk` and open it, as when installing. Your setup is kept either way.
 | Folder View (panel, or in the dock) | tap a file / middle-click / long-press it | open it / open it in a floating window / Open · Open in a window · Open with · Share · Rename · Delete; long-press **and move** drags the file into another app, or onto another Folder View or TabDesk Files (Move here / Copy here); files dragged in from other apps are copied in. On the desktop, long-press the panel's title, empty space or edge **and move** to move the panel |
 | **TabDesk Files** (in Start, or a Folder View's long-press menu → Open in TabDesk Files) | tap | a file manager in a window of its own, which floats like any app: places at the left (under ☰ when the window is narrow), with your Folder Views' folders among them; Back, Up, the path (tap a part of it to go there), search in this folder, grid or list, and ⋮ for New folder · Paste here · Select all · sort by name / newest / largest · show hidden files · Put this folder on the desktop or in the dock |
 | A file or folder in TabDesk Files | tap / middle-click / long-press | open it / open it in a floating window / Open · Open in a window · Open with · Share · Select · Copy · Cut · Rename · Delete, and for a folder Put on the desktop · Put in the widget dock. With something selected, taps select more, and the top bar has Select all · Copy · Cut · Share · Delete; **Paste** at the bottom puts what you copied or cut in the folder you're in. Long-press **and move** drags files onto a folder or a Folder View (Move here / Copy here), or into another app, which gets a copy |
+| **TabDesk Tasks** (in Start; needs the helper) | tap an app | what's running, in a window of its own: CPU, memory and battery at the top, then each app's share of the CPU over the last moment and the memory it uses, busiest first (the button at the top right sorts by memory instead). Tap an app for Open · Close its windows · App info (Force stop is there). TabDesk's own row is the home screen, Files and the helper together. Without the helper it says so, with a button to set it up |
 | Start A–Z bar | tap a letter / number | shows only apps starting with it (tap again or Back for all); only characters your apps start with appear |
 | Start search | type, then Enter | opens the top hit, or searches the web |
 | Start search | a sum, e.g. `12*8+4`, `(2+3)^2/4`, `200*15%` | the answer at the top; tap it to copy |
@@ -113,7 +114,8 @@ Start shows a "Recently added" section for apps installed in the last 14 days.
 **Running apps (the helper).** Android doesn't let an app see which other apps are running, but adb
 can. TabDesk pairs with the tablet's own wireless debugging, the way a computer would, and starts a
 small helper process through it. The helper tells TabDesk whenever apps open, move or close, and
-closes, minimises, restores and resizes windows when asked. With it, the taskbar shows the apps that
+closes, minimises, restores and resizes windows when asked, and measures how busy each app is for
+TabDesk Tasks. With it, the taskbar shows the apps that
 are running (after the pins, which get the same mark): a short grey line under a running app, a
 longer one in the accent colour while it's on screen, e.g. in a floating window, and a tap minimises
 or restores it (see Floating windows). Without it, the taskbar shows recently used apps instead.
@@ -247,10 +249,14 @@ adb shell cmd package set-home-activity com.zui.launcher/.drawer.DrawerLauncher
 ## Code map (`app/src/main/java/dev/tabdesk/`)
 
 - `HomeActivity.kt`: window/insets, layers, launching, context menus, back/home handling
-- `TabActivity.kt`: what the home screen and TabDesk Files share (colours, menus and dialogs, floating launches)
+- `TabActivity.kt`: what the home screen, TabDesk Files and TabDesk Tasks share (colours, menus and dialogs,
+  floating launches)
 - `FilesActivity.kt`: TabDesk Files, the file manager window. It runs in a process and task of its own
   (`:files`), reads TabDesk's settings without changing them, and asks the home screen for a new Folder View
   with a broadcast only TabDesk can send (`dev.tabdesk.permission.FOLDER_VIEWS`)
+- `TasksActivity.kt`: TabDesk Tasks, the what's-running window. It runs in the home screen's process (it needs
+  the helper connection) but in a task of its own, and asks the helper for a sample every few seconds while
+  it's on screen
 - `Desktop.kt`: snap-to-grid desktop (icons, shortcuts, widgets), drag & drop, widget resize
 - `DesktopItem.kt`: what's on the desktop (apps, shortcuts, widgets, folders) and how it's saved
 - `Shell.kt`: taskbar (pins, battery, clock) and Start menu (A–Z list, search, footer)
@@ -289,8 +295,9 @@ adb shell cmd package set-home-activity com.zui.launcher/.drawer.DrawerLauncher
 - `Device.kt`: which maker's Android this is (OxygenOS, HyperOS, One UI, ZUI…), for maker-specific steps
 - `Adb.kt`: running commands through wireless debugging, switching it on for the moment if it's off, and
   remembering its port (Android 12 stops announcing it soon after pairing)
-- `Helper.kt`: the helper itself, run as the shell user with `app_process`: watches tasks, serves TabDesk on 127.0.0.1
-- `HelperClient.kt`: TabDesk's side: starts the helper (at startup, after a restart, when a new version is installed), stays connected, and passes on the running tasks
+- `Helper.kt`: the helper itself, run as the shell user with `app_process`: watches tasks, measures CPU and memory
+  per app, serves TabDesk on 127.0.0.1
+- `HelperClient.kt`: TabDesk's side: starts the helper (at startup, after a restart, when a new version is installed), stays connected, and passes on the running tasks and the usage samples
 
 `icons/`: everything about app icons
 
@@ -331,8 +338,14 @@ the tablet's pairing service (see
   - `resize <task> l t r b`: `resizeTask`, as `am task resize` does (floating windows only).
   - `shot <task> <px>`: the window's last snapshot (`getTaskSnapshot`, else `takeTaskSnapshot`), scaled
     and sent back as a base64 JPEG on one line, off the reading thread.
+  - `usage <ms>`: reads `/proc/<pid>/stat` and `statm` for every process twice, `<ms>` apart (the shell
+    user may read them all), and answers with the CPU's busy share, how long since the screen was last
+    touched (`dumpsys power`), and per app (by uid; system processes together as "android") its CPU share,
+    CPU time, resident memory and process names. It runs on a thread of its own, so task updates keep
+    coming meanwhile.
   - `ping`, `quit`.
-  Each task in the list also carries its windowing mode, whether it has focus, and its bounds.
+  Each task in the list also carries its windowing mode, whether it has focus, its bounds, and the
+  activity it was started with (TabDesk's own windows, Files and Tasks, share one package).
   `tools/emulator/helper.sh tasks|min|front|resize|shot …` runs the same calls from a computer.
 - **Lifetime**: the helper is in adb's process group, so it ends when adb does. adb runs while USB or
   wireless debugging is on, so with USB debugging on, wireless debugging can be switched off again.

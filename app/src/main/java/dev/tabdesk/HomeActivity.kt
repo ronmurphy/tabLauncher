@@ -580,7 +580,7 @@ class HomeActivity : TabActivity() {
         }
         // Running (the helper knows): minimise or restore, snap a floating window, and close it, as swiping it
         // away in Recents does.
-        val tasks = HelperClient.tasks.filter { it.pkg == app.pkg }
+        val tasks = HelperClient.tasks.filter { it.isOf(app) }
         if (tasks.any { it.running }) {
             e += MenuEntry.DIVIDER
             e += Windows.menuEntries(this, app)

@@ -5,8 +5,12 @@ import android.app.ActivityOptions
 import android.content.Intent
 import android.graphics.Rect
 import android.os.Bundle
+import android.view.Gravity
+import android.view.View
 import android.view.WindowInsets
+import android.widget.TextView
 import android.widget.Toast
+import dev.tabdesk.icons.Icons
 
 /**
  * What TabDesk's windows share: the home screen ([HomeActivity]) and TabDesk Files ([FilesActivity]). Menus, dialogs
@@ -18,6 +22,19 @@ abstract class TabActivity : Activity() {
 
     /** A floating window covers this one, so menus go in a window above it (only the home screen does that). */
     open val coveredByWindows: Boolean get() = false
+
+    /** A Material symbol as the text of this view (icon buttons, badges). */
+    fun TextView.symbolText(name: String, size: Float, color: Int, fill: Boolean = false): TextView = apply {
+        typeface = Icons.symbolFont(this@TabActivity, fill = fill); textSize = size; setTextColor(color); gravity = Gravity.CENTER
+        text = Icons.symbol(this@TabActivity, name)?.text ?: "•"
+        includeFontPadding = false
+    }
+
+    /** A round icon button for a window's top bar; [desc] is its tooltip and what screen readers say. */
+    fun symbolButton(name: String, desc: String, onClick: (View) -> Unit) = TextView(this).symbolText(name, 22f, pal.text).apply {
+        background = rippleBg(pal.ripple, dpf(22)); contentDescription = desc; tooltipText = desc
+        setOnClickListener { onClick(it) }
+    }
 
     fun hideIme() { window.insetsController?.hide(WindowInsets.Type.ime()) }
 

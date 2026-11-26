@@ -106,6 +106,24 @@
             </intent-filter>
         </activity>
 
+        <!-- TabDesk Tasks: what each app is using (through the helper), in a window of its own that can float. It
+             runs in the home screen's process, which holds the one connection to the helper. -->
+        <activity
+            android:name=".TasksActivity"
+            android:configChanges="orientation|screenSize|screenLayout|smallestScreenSize|keyboard|keyboardHidden|navigation"
+            android:exported="true"
+            android:icon="@mipmap/ic_tasks"
+            android:label="@string/tasks_name"
+            android:launchMode="singleTask"
+            android:resizeableActivity="true"
+            android:taskAffinity="dev.tabdesk.tasks"
+            android:theme="@style/Theme.TabDesk.Files">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+        </activity>
+
         <!-- Hands one file to the app the user opens, shares or drags it to from a Folder View (read only). -->
         <provider
             android:name=".FilesProvider"

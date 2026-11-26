@@ -14,6 +14,7 @@ import android.os.SystemClock
 import android.provider.Settings
 import android.util.Base64
 import android.util.Log
+import dev.tabdesk.AppInfo
 import java.io.BufferedReader
 import java.io.File
 import java.io.InputStreamReader
@@ -39,9 +40,17 @@ internal object HelperClient {
     /**
      * A task as the helper reports it. [visible]: on screen now (a minimised window is running but not visible).
      * [floating]: in a floating window, which [bounds] gives in screen pixels. [focused]: the window in use.
+     * [cls]: the activity it was started with.
      */
     class Task(val id: Int, val pkg: String, val running: Boolean, val visible: Boolean, val lastActive: Long,
-               val floating: Boolean = false, val focused: Boolean = false, val bounds: Rect? = null)
+               val floating: Boolean = false, val focused: Boolean = false, val bounds: Rect? = null, val cls: String? = null) {
+        /**
+         * Whether this is a window of [app]. Another app's task counts by its package, whatever screen of the app it
+         * was opened at; TabDesk's own windows (Files, Tasks) share one package, so for those the activity decides.
+         */
+        fun isOf(app: AppInfo?) = app != null && pkg == app.pkg &&
+            (cls == null || pkg != ownPackage || cls == app.component.className)
+    }
 
     /** The tasks in Recents as the helper last reported them, newest first; empty when it isn't connected. */
     @Volatile var tasks: List<Task> = emptyList()
@@ -65,6 +74,7 @@ internal object HelperClient {
     private var failures = 0
     private var waitingForWifi = false
     private lateinit var app: Context
+    private val ownPackage get() = if (::app.isInitialized) app.packageName else null
 
     private fun changed() = main.post { listeners.toList().forEach { it() } }
 
@@ -121,6 +131,52 @@ internal object HelperClient {
         exec.execute { send("shot $taskId $maxPx") }
         main.postDelayed({ answerPreview(taskId, null) }, 4000)
     }
+
+    /**
+     * One app's share of the tablet over a moment (see Helper.usage). [owner]: "u<uid>" for an app, "p<package>" for
+     * processes an app started under a throwaway uid (and the helper, which is TabDesk's), "android" for the system.
+     * [cpu]: per mille of the whole device. [cpuSeconds]: CPU time in all since its processes started. [memKb]: RAM.
+     */
+    class AppUsage(val owner: String, val cpu: Int, val cpuSeconds: Long, val memKb: Long, val names: List<String>)
+
+    /** [busy]: the whole device, per mille. [idleMs]: since the user last touched it (-1: unknown). */
+    class Usage(val sampleMs: Long, val cpus: Int, val busy: Int, val idleMs: Long, val apps: List<AppUsage>)
+
+    private val usageWaiting = ArrayList<(Usage?) -> Unit>()
+    private var usageAsk = 0
+
+    /**
+     * What's using the tablet, looked at over about [sampleMs], given to [done] on the main thread; null without the
+     * helper, or if it doesn't answer. Asks made while one is under way share its answer.
+     */
+    fun usage(sampleMs: Long, done: (Usage?) -> Unit) {
+        if (!connected) { done(null); return }
+        val ask = synchronized(usageWaiting) {
+            usageWaiting += done
+            if (usageWaiting.size > 1) return
+            usageAsk
+        }
+        exec.execute { send("usage $sampleMs") }
+        main.postDelayed({ answerUsage(null, ask) }, sampleMs + 5000)
+    }
+
+    private fun answerUsage(u: Usage?, ask: Int? = null) {
+        val list = synchronized(usageWaiting) {
+            if (ask != null && ask != usageAsk) return   // that ask was answered already
+            usageAsk++
+            usageWaiting.toList().also { usageWaiting.clear() }
+        }
+        main.post { list.forEach { it(u) } }
+    }
+
+    private fun parseUsage(line: String): Usage? = try {
+        val parts = line.split('\t')
+        val h = parts[0].split(' ')
+        Usage(h[1].toLong(), h[2].toInt(), h[3].toInt(), h[4].toLong(), parts.drop(1).mapNotNull { a ->
+            val w = a.split(' ', limit = 6)
+            if (w.size < 6) null else AppUsage(w[0], w[1].toInt(), w[2].toLong(), w[3].toLong(), w[5].split(','))
+        })
+    } catch (_: Exception) { null }
 
     private fun answerPreview(taskId: Int, bmp: Bitmap?) {
         val list = synchronized(previewsWaiting) { previewsWaiting.remove(taskId) } ?: return
@@ -227,7 +283,8 @@ internal object HelperClient {
                         val w = t.split(' ')
                         if (w.size < 5) null
                         else Task(w[0].toInt(), w[1], w[2] == "1", w[3] == "1", w[4].toLongOrNull() ?: 0L,
-                            floating = w.getOrNull(5) == "5", focused = w.getOrNull(6) == "1", bounds = rect(w.getOrNull(7)))
+                            floating = w.getOrNull(5) == "5", focused = w.getOrNull(6) == "1", bounds = rect(w.getOrNull(7)),
+                            cls = w.getOrNull(8))
                     }
                     changed()
                 } else if (line.startsWith("shot ")) {
@@ -238,6 +295,8 @@ internal object HelperClient {
                         catch (_: Exception) { null }
                     }
                     answerPreview(id, bmp)
+                } else if (line.startsWith("usage")) {
+                    answerUsage(parseUsage(line))
                 }
             }
         } catch (_: Exception) {

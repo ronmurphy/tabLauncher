@@ -39,6 +39,7 @@ object Helper {
         when (args.firstOrNull()) {
             "serve" -> serve()
             "tasks" -> tasks().map { it.line() }.ifEmpty { listOf("(no tasks)") }.forEach { println(it) }
+            "usage" -> println(usage(args.getOrNull(1)?.toLongOrNull() ?: 1500).replace('\t', '\n'))
             "close" -> println("close $id: ${close(id)}")
             "min" -> println("min $id: ${minimise(id)}")
             "front" -> println("front $id: ${front(id)}")
@@ -58,7 +59,7 @@ object Helper {
             // Tries one of the window calls by name, with whole-number arguments ("ints" passes them as one int[]).
             "call" -> println("${args[1]}: ${call(atm, args[1], *args.drop(2).map { it.toInt() }.toTypedArray())}")
             "ints" -> println("${args[1]}: ${call(atm, args[1], args.drop(2).map { it.toInt() }.toIntArray())}")
-            else -> println("usage: serve | tasks | close|min|front <task id> | resize <task id> <l> <t> <r> <b> | " +
+            else -> println("usage: serve | tasks | usage [ms] | close|min|front <task id> | resize <task id> <l> <t> <r> <b> | " +
                 "shot <task id> [size] [file] | methods <word> | iface <class> [word] | call|ints <method> <numbers…>")
         }
     }
@@ -71,10 +72,11 @@ object Helper {
     /**
      * One task, as the taskbar needs it. [mode] is how its window is shown (1 full screen, 5 floating, 6 split
      * screen, 0 unknown); [bounds] is where, as "left,top,right,bottom". [focused]: the window the user is using.
+     * [cls]: the activity the task was started with, which tells TabDesk's own windows (Files, Tasks) apart.
      */
     class Task(val id: Int, val pkg: String, val running: Boolean, val visible: Boolean, val lastActive: Long,
-               val mode: Int, val focused: Boolean, val bounds: String) {
-        fun line() = "$id $pkg ${if (running) 1 else 0} ${if (visible) 1 else 0} $lastActive $mode ${if (focused) 1 else 0} $bounds"
+               val mode: Int, val focused: Boolean, val bounds: String, val cls: String) {
+        fun line() = "$id $pkg ${if (running) 1 else 0} ${if (visible) 1 else 0} $lastActive $mode ${if (focused) 1 else 0} $bounds $cls"
     }
 
     /** Closes a task, as swiping it away in Recents does. */
@@ -82,13 +84,13 @@ object Helper {
 
     /** The tasks in Recents, newest first. */
     private fun tasks(): List<Task> = recentTasks().mapNotNull { t ->
-        val pkg = (field(t, "baseIntent") as? Intent)?.component?.packageName ?: return@mapNotNull null
+        val component = (field(t, "baseIntent") as? Intent)?.component ?: return@mapNotNull null
         val wc = windowConfig(t)
         val mode = try { wc?.javaClass?.getMethod("getWindowingMode")?.invoke(wc) as? Int } catch (_: Throwable) { null } ?: 0
         val b = try { wc?.javaClass?.getMethod("getBounds")?.invoke(wc) as? Rect } catch (_: Throwable) { null }
-        Task(field(t, "taskId") as Int, pkg, field(t, "isRunning") == true, field(t, "isVisible") == true,
+        Task(field(t, "taskId") as Int, component.packageName, field(t, "isRunning") == true, field(t, "isVisible") == true,
             (field(t, "lastActiveTime") as? Long) ?: 0L, mode, field(t, "isFocused") == true,
-            b?.let { "${it.left},${it.top},${it.right},${it.bottom}" } ?: "-")
+            b?.let { "${it.left},${it.top},${it.right},${it.bottom}" } ?: "-", component.className)
     }
 
     private fun recentTasks(): List<Any> {
@@ -237,6 +239,103 @@ object Helper {
 
     // ---------------------------------------------------------------- serving TabDesk
 
+    // ---------------------------------------------------------------- usage
+
+    /** One process at a moment: whose it is, and the CPU time it has used since it started, in clock ticks. */
+    private class Proc(val owner: String, val name: String, val ticks: Long)
+
+    /** Process names by pid, read once per process (they don't change, and reading them is the slow part). */
+    private val procNames = HashMap<Int, String>()
+    private val clockTicks: Long by lazy { try { android.system.Os.sysconf(android.system.OsConstants._SC_CLK_TCK) } catch (_: Throwable) { 100L } }
+    private val pageKb: Long by lazy { try { android.system.Os.sysconf(android.system.OsConstants._SC_PAGESIZE) / 1024 } catch (_: Throwable) { 4L } }
+
+    /**
+     * Whose a process is, for grouping: "u<uid>" for an app, "p<package>" for a process an app started under a
+     * throwaway uid (web pages, sandboxes: the package is the first part of its name), "android" for the rest.
+     * The helper itself runs as the shell user but is part of TabDesk.
+     */
+    private fun owner(uid: Int, name: String): String {
+        val appId = uid % 100_000
+        return when {
+            name == "tabdesk_helper" -> "pdev.tabdesk"
+            appId in 10_000..19_999 -> "u$uid"
+            appId >= 90_000 -> name.substringBefore(':').takeIf { '.' in it }?.let { "p$it" } ?: "android"
+            else -> "android"
+        }
+    }
+
+    private fun readProcs(): HashMap<Int, Proc> {
+        val out = HashMap<Int, Proc>()
+        val seen = HashSet<Int>()
+        for (d in java.io.File("/proc").listFiles() ?: emptyArray()) {
+            val pid = d.name.toIntOrNull() ?: continue
+            try {
+                val stat = java.io.File(d, "stat").readText()
+                // The name in brackets may hold spaces, so count fields from after its closing bracket.
+                val f = stat.substring(stat.lastIndexOf(')') + 2).split(' ')
+                val ticks = f[11].toLong() + f[12].toLong()   // utime + stime
+                val name = procNames.getOrPut(pid) {
+                    java.io.File(d, "cmdline").readText().substringBefore('\u0000').trim()
+                        .ifEmpty { stat.substring(stat.indexOf('(') + 1, stat.lastIndexOf(')')) }
+                        .replace(' ', '_').replace('\t', '_')
+                }
+                val uid = android.system.Os.stat(d.path).st_uid
+                out[pid] = Proc(owner(uid, name), name, ticks)
+                seen += pid
+            } catch (_: Exception) { }   // it ended while being read
+        }
+        procNames.keys.retainAll(seen)
+        return out
+    }
+
+    /** All CPUs' busy and total time from /proc/stat, in clock ticks. */
+    private fun cpuTimes(): LongArray = try {
+        val f = java.io.File("/proc/stat").bufferedReader().use { it.readLine() }.trim().split(Regex("\\s+")).drop(1).map { it.toLong() }
+        val idle = f[3] + f.getOrElse(4) { 0L }   // idle + iowait
+        longArrayOf(f.sum() - idle, f.sum())
+    } catch (_: Exception) { longArrayOf(0, 0) }
+
+    /** How long since the user last touched the screen (or a key), in ms; -1 if Android doesn't say. */
+    private fun idleMs(): Long = try {
+        val p = Runtime.getRuntime().exec(arrayOf("dumpsys", "power"))
+        val re = Regex("lastUserActivityTime=\\d+ \\((\\d+) ms ago\\)")
+        val ms = p.inputStream.bufferedReader().useLines { lines -> lines.firstNotNullOfOrNull { re.find(it)?.groupValues?.get(1) } }
+        p.destroy()
+        ms?.toLongOrNull() ?: -1L
+    } catch (_: Exception) { -1L }
+
+    /**
+     * What's using the tablet: the CPU each app used over [ms] (looking twice, that far apart), its memory, and its
+     * CPU time in all, as one line:
+     *     usage <ms> <cpus> <device busy ‰> <ms since the user touched it>\t<owner> <cpu ‰> <cpu seconds> <memory kB> <processes> <names,…>\t…
+     * CPU ‰ is of the whole device (all its CPUs), so one busy thread on an 8-CPU tablet is 125 ‰. Memory is what's
+     * in RAM (RSS), which counts shared libraries in every process, so the numbers add up to more than the tablet has.
+     */
+    private fun usage(ms: Long): String {
+        val cpus = Runtime.getRuntime().availableProcessors()
+        val t0 = cpuTimes(); val a = readProcs(); val start = System.nanoTime()
+        Thread.sleep(ms)
+        val t1 = cpuTimes(); val b = readProcs(); val took = (System.nanoTime() - start) / 1_000_000.0
+        val busy = if (t1[1] > t0[1]) ((t1[0] - t0[0]) * 1000 / (t1[1] - t0[1])).toInt() else 0
+
+        class Sum { var delta = 0L; var ticks = 0L; var kb = 0L; val names = LinkedHashSet<String>() }
+        val sums = LinkedHashMap<String, Sum>()
+        for ((pid, p) in b) {
+            val s = sums.getOrPut(p.owner) { Sum() }
+            a[pid]?.takeIf { it.name == p.name }?.let { s.delta += (p.ticks - it.ticks).coerceAtLeast(0) }
+            s.ticks += p.ticks
+            s.kb += try { java.io.File("/proc/$pid/statm").readText().split(' ')[1].toLong() * pageKb } catch (_: Exception) { 0L }
+            s.names += p.name
+        }
+        val perMille = { delta: Long -> (delta * 1000.0 * 1000 / (clockTicks * took * cpus)).toInt().coerceIn(0, 1000) }
+        val sb = StringBuilder("usage ${took.toLong()} $cpus $busy ${idleMs()}")
+        for ((owner, s) in sums) {
+            if (s.kb == 0L) continue   // kernel threads: no memory of their own, and counted in "android"'s CPU anyway
+            sb.append('\t').append("$owner ${perMille(s.delta)} ${s.ticks / clockTicks} ${s.kb} ${s.names.size} ${s.names.take(8).joinToString(",")}")
+        }
+        return sb.toString()
+    }
+
     private val lock = Object()
     private var changed = true
     private var client: OutputStream? = null
@@ -307,6 +406,14 @@ object Helper {
                             val jpeg = try { snapshot(id, size) } catch (e: Throwable) { log("shot $id", e); null }
                             val data = jpeg?.let { android.util.Base64.encodeToString(it, android.util.Base64.NO_WRAP) } ?: "-"
                             synchronized(lock) { write(out, "shot $id $data") }
+                        }
+                    }
+                    // What's using the tablet, looked at over a moment (see [usage]). Off this thread too.
+                    "usage" -> {
+                        val ms = w.getOrNull(1)?.toLongOrNull()?.coerceIn(250, 5000) ?: 1500
+                        thread(name = "usage", isDaemon = true) {
+                            val line = try { synchronized(procNames) { usage(ms) } } catch (e: Throwable) { log("usage", e); "usage -" }
+                            synchronized(lock) { write(out, line) }
                         }
                     }
                     "ping" -> synchronized(lock) { write(out, "pong") }

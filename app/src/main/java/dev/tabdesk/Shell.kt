@@ -203,12 +203,12 @@ class Taskbar(private val act: HomeActivity) : LinearLayout(act) {
      * otherwise, when the same apps are running, only their marks change, so a press on a button isn't cut short.
      */
     fun bindRecents(force: Boolean = true) {
-        val pinned = Prefs.pins.mapNotNull { Apps.get(it)?.pkg }.toSet()
+        val pinned = Prefs.pins.mapNotNull { Apps.get(it) }
         val running = HelperClient.connected
-        val list = (if (running) HelperClient.tasks.asSequence().filter { it.running }.map { it.pkg }.distinct()
-            else Recents.shown().asSequence())
-            .filter { it !in pinned }
-            .mapNotNull { Apps.firstOf(it) }
+        val list = (if (running) HelperClient.tasks.asSequence().filter { it.running }.mapNotNull { Apps.ofTask(it) }
+            else Recents.shown().asSequence().mapNotNull { Apps.firstOf(it) })
+            .distinctBy { it.key }
+            .filter { a -> pinned.none { if (a.pkg == act.packageName) it.key == a.key else it.pkg == a.pkg } }
             .filter { running || !Prefs.isHidden(it.key) }
             .toList()
         // Running apps keep their places and a new one goes at the end, so buttons don't move under the pointer.
@@ -233,8 +233,8 @@ class Taskbar(private val act: HomeActivity) : LinearLayout(act) {
         for (group in listOf(pins, recents)) for (i in 0 until group.childCount) {
             val f = group.getChildAt(i) as FrameLayout
             val bar = f.findViewWithTag<View>("run") ?: continue
-            val pkg = Apps.get(f.tag as String)?.pkg
-            val mine = tasks.filter { it.pkg == pkg && it.running }
+            val app = Apps.get(f.tag as String)
+            val mine = tasks.filter { it.running && it.isOf(app) }
             bar.visibility = if (mine.isEmpty()) View.GONE else View.VISIBLE
             // A running app shows its windows' previews under the pointer; its name is on them, so no tooltip.
             f.tooltipText = if (mine.isEmpty()) f.contentDescription else null
