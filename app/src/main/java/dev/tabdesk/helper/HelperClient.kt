@@ -40,10 +40,12 @@ internal object HelperClient {
     /**
      * A task as the helper reports it. [visible]: on screen now (a minimised window is running but not visible).
      * [floating]: in a floating window, which [bounds] gives in screen pixels. [focused]: the window in use.
-     * [cls]: the activity it was started with.
+     * [cls]: the activity it was started with. [top]: the package of the screen on top of it, which may be another
+     * app's (a sign-in, a share sheet); the package that counts for agent control.
      */
     class Task(val id: Int, val pkg: String, val running: Boolean, val visible: Boolean, val lastActive: Long,
-               val floating: Boolean = false, val focused: Boolean = false, val bounds: Rect? = null, val cls: String? = null) {
+               val floating: Boolean = false, val focused: Boolean = false, val bounds: Rect? = null, val cls: String? = null,
+               val top: String = pkg) {
         /**
          * Whether this is a window of [app]. Another app's task counts by its package, whatever screen of the app it
          * was opened at; TabDesk's own windows (Files, Tasks) share one package, so for those the activity decides.
@@ -105,7 +107,7 @@ internal object HelperClient {
      */
     private fun expect(taskId: Int, visible: Boolean) {
         val t = tasks.firstOrNull { it.id == taskId } ?: return
-        val now = Task(t.id, t.pkg, t.running, visible, t.lastActive, t.floating, visible && t.focused, t.bounds)
+        val now = Task(t.id, t.pkg, t.running, visible, t.lastActive, t.floating, visible && t.focused, t.bounds, t.cls, t.top)
         val rest = tasks.filter { it.id != taskId }
         tasks = if (visible) listOf(now) + rest else tasks.map { if (it.id == taskId) now else it }
         changed()
@@ -179,6 +181,35 @@ internal object HelperClient {
         }
         main.post { list.forEach { it(u) } }
     }
+
+    private val readsWaiting = java.util.concurrent.ConcurrentHashMap<Int, (org.json.JSONObject?) -> Unit>()
+    private val readNext = java.util.concurrent.atomic.AtomicInteger()
+
+    /**
+     * For agent control: reads [pkg]'s windows if it's on top of task [taskId] in front, from item [root] (null: all)
+     * down [depth] levels (-1: all), with a picture at most [picture] px (0: none); see Helper's Reader for the
+     * answer. Waits on the calling thread until [deadline] (wall time); null if the helper isn't connected or
+     * doesn't answer by then.
+     */
+    fun read(pkg: String, taskId: Int, root: String?, depth: Int, picture: Int, deadline: Long): org.json.JSONObject? {
+        if (!connected) return null
+        require(pkg.none { it.isWhitespace() } && root?.matches(Regex("""\d+(\.\d+)*""")) != false)
+        val req = readNext.incrementAndGet()
+        val latch = java.util.concurrent.CountDownLatch(1)
+        var got: org.json.JSONObject? = null
+        readsWaiting[req] = { got = it; latch.countDown() }
+        exec.execute { send("read $req $pkg $taskId ${root ?: "-"} $depth $picture") }
+        try {
+            latch.await((deadline - System.currentTimeMillis()).coerceAtLeast(0), java.util.concurrent.TimeUnit.MILLISECONDS)
+        } finally { readsWaiting.remove(req) }
+        return got
+    }
+
+    /** Control went idle or stopped: the helper stops reading the screen. */
+    fun stopReading() = exec.execute { send("unread") }
+
+    /** Wakes the screen, as the power button does ("Let the agent wake the screen"). */
+    fun wake() = exec.execute { send("wake") }
 
     private fun parseUsage(line: String): Usage? = try {
         val parts = line.split('\t')
@@ -295,7 +326,7 @@ internal object HelperClient {
                         if (w.size < 5) null
                         else Task(w[0].toInt(), w[1], w[2] == "1", w[3] == "1", w[4].toLongOrNull() ?: 0L,
                             floating = w.getOrNull(5) == "5", focused = w.getOrNull(6) == "1", bounds = rect(w.getOrNull(7)),
-                            cls = w.getOrNull(8))
+                            cls = w.getOrNull(8), top = w.getOrNull(9) ?: w[1])
                     }
                     changed()
                 } else if (line.startsWith("shot ")) {
@@ -308,12 +339,18 @@ internal object HelperClient {
                     answerPreview(id, bmp)
                 } else if (line.startsWith("usage")) {
                     answerUsage(parseUsage(line))
+                } else if (line.startsWith("read ")) {
+                    val rest = line.substring(5)
+                    val req = rest.substringBefore(' ').toIntOrNull() ?: continue
+                    val r = try { org.json.JSONObject(rest.substringAfter(' ')) } catch (_: Exception) { null }
+                    readsWaiting.remove(req)?.invoke(r)
                 }
             }
         } catch (_: Exception) {
         } finally {
             try { sock.close() } catch (_: Exception) {}
             out = null; connected = false; tasks = emptyList(); overlaysHidden = false
+            readsWaiting.keys.toList().forEach { readsWaiting.remove(it)?.invoke(null) }
             Log.i(TAG, "helper connection ended")
             problem = "The helper stopped"
             changed()

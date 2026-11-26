@@ -1,6 +1,7 @@
 package dev.tabdesk.agentcaller
 
 import android.app.Activity
+import android.content.BroadcastReceiver
 import android.content.ComponentName
 import android.content.Context
 import android.content.Intent
@@ -20,39 +21,28 @@ import kotlin.concurrent.thread
 
 /**
  * A test caller for TabDesk's agent service (plan T9), as DroidACP would call it. Each command comes as an intent
- * (see run.sh), and everything that happens is logged with the tag AgentCaller, e.g. "REPLY c1:3 {…}".
+ * (see run.sh): to [MainActivity], which comes to the front, or as a broadcast to [CommandReceiver], which leaves
+ * whatever app is in front there (to read it). Everything that happens is logged with the tag AgentCaller, e.g.
+ * "REPLY c1:3 {…}".
  *
  * Commands (extra "cmd"): bind, unbind, version, status, connect, init, list, call (extras "tool", "args" JSON),
  * raw (extra "json" or "b64"), cancel (extra "id"), stop, resume, burst (extra "n": that many usage calls at once),
- * die (the process exits, as if it crashed).
+ * die (the process exits, as if it crashed), pw (shows a password field holding "hunter2", for the screen reader's tests).
  */
 class MainActivity : Activity() {
-    companion object {
-        private const val TAG = "AgentCaller"
-        private var service: IAgentService? = null
-        private var conn: ServiceConnection? = null
-        private var next = 0
-        private val exec = Executors.newSingleThreadExecutor()
-    }
-
     private lateinit var out: TextView
-
-    private val callback = object : IAgentCallback.Stub() {
-        override fun reply(id: String, json: String) = log("REPLY $id $json")
-        override fun onControlState(state: String, reason: String) = log("STATE $state $reason")
-        override fun replyStream(id: String, pipe: ParcelFileDescriptor) {
-            thread {
-                val bytes = try { ParcelFileDescriptor.AutoCloseInputStream(pipe).use { it.readBytes() } } catch (e: Exception) { null }
-                log("STREAM $id ${bytes?.size ?: -1} bytes ${bytes?.let { String(it).take(300) } ?: "(failed)"}")
-            }
-        }
-    }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         out = TextView(this).apply { textSize = 11f; setPadding(24, 24, 24, 24) }
         setContentView(ScrollView(this).apply { addView(out) })
+        Caller.ui = { s -> runOnUiThread { if (::out.isInitialized) out.append(s.take(2000) + "\n") } }
         handle(intent)
+    }
+
+    override fun onDestroy() {
+        Caller.ui = null
+        super.onDestroy()
     }
 
     override fun onNewIntent(intent: Intent) {
@@ -60,9 +50,54 @@ class MainActivity : Activity() {
         handle(intent)
     }
 
+    private fun handle(i: Intent?) {
+        when (i?.getStringExtra("cmd")) {
+            // A password field holding "hunter2" and a plain one, to check the screen reader never reads the first.
+            "pw" -> {
+                val box = android.widget.LinearLayout(this).apply { orientation = android.widget.LinearLayout.VERTICAL; setPadding(24, 24, 24, 24) }
+                box.addView(android.widget.EditText(this).apply {
+                    hint = "Password"
+                    inputType = android.text.InputType.TYPE_CLASS_TEXT or android.text.InputType.TYPE_TEXT_VARIATION_PASSWORD
+                    setText("hunter2")
+                })
+                box.addView(android.widget.EditText(this).apply { hint = "Name"; setText("plain text") })
+                box.addView(android.widget.Button(this).apply { text = "Roll d20" })
+                setContentView(box)
+            }
+            else -> Caller.handle(applicationContext, i)
+        }
+    }
+}
+
+/** Commands as broadcasts: am broadcast -n dev.tabdesk.agentcaller/.CommandReceiver --es cmd … */
+class CommandReceiver : BroadcastReceiver() {
+    override fun onReceive(context: Context, intent: Intent) = Caller.handle(context.applicationContext, intent)
+}
+
+/** The connection to TabDesk, kept for as long as the process lives, and the commands. */
+object Caller {
+    private const val TAG = "AgentCaller"
+    private var service: IAgentService? = null
+    private var conn: ServiceConnection? = null
+    private var next = 0
+    private val exec = Executors.newSingleThreadExecutor()
+    @Volatile var ui: ((String) -> Unit)? = null
+
+    private val callback = object : IAgentCallback.Stub() {
+        override fun reply(id: String, json: String) = log("REPLY $id $json")
+        override fun onControlState(state: String, reason: String) = log("STATE $state $reason")
+        override fun replyStream(id: String, pipe: ParcelFileDescriptor) {
+            thread {
+                val bytes = try { ParcelFileDescriptor.AutoCloseInputStream(pipe).use { it.readBytes() } } catch (e: Exception) { null }
+                log("STREAM $id ${bytes?.size ?: -1} bytes ${bytes?.let { String(it) } ?: "(failed)"}")
+            }
+        }
+    }
+
     private fun log(s: String) {
-        Log.i(TAG, s)
-        runOnUiThread { if (::out.isInitialized) out.append(s.take(2000) + "\n") }
+        // Long lines (a screen read) go to the log in parts: logcat cuts lines at about 4000 characters.
+        s.chunked(3500).forEachIndexed { i, part -> Log.i(TAG, if (i == 0) part else "  …$part") }
+        ui?.invoke(s)
     }
 
     private fun id() = "c1:${++next}"
@@ -77,7 +112,10 @@ class MainActivity : Activity() {
     private fun request(method: String, params: JSONObject? = null) =
         JSONObject().put("jsonrpc", "2.0").put("id", next + 1).put("method", method).also { if (params != null) it.put("params", params) }
 
-    private fun handle(i: Intent?) {
+    private lateinit var app: Context
+
+    fun handle(ctx: Context, i: Intent?) {
+        app = ctx
         val cmd = i?.getStringExtra("cmd") ?: return
         exec.execute {
             try { run(cmd, i) } catch (e: Exception) { log("ERROR $cmd: $e") }
@@ -95,10 +133,10 @@ class MainActivity : Activity() {
                     override fun onBindingDied(name: ComponentName) { log("BINDING_DIED") }
                 }
                 conn = c
-                val ok = applicationContext.bindService(Intent("dev.tabdesk.action.AGENT").setPackage("dev.tabdesk"), c, Context.BIND_AUTO_CREATE)
+                val ok = app.bindService(Intent("dev.tabdesk.action.AGENT").setPackage("dev.tabdesk"), c, Context.BIND_AUTO_CREATE)
                 log("BIND $ok")
             }
-            "unbind" -> { conn?.let { applicationContext.unbindService(it) }; conn = null; service = null; log("UNBOUND") }
+            "unbind" -> { conn?.let { app.unbindService(it) }; conn = null; service = null; log("UNBOUND") }
             "version" -> log("VERSION ${service?.version()}")
             "status" -> log("STATUS ${service?.status()}")
             "connect" -> { service?.connect(callback); log("CONNECTED") }

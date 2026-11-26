@@ -1,5 +1,6 @@
 package dev.tabdesk.helper
 
+import android.content.ComponentName
 import android.content.Intent
 import android.graphics.Bitmap
 import android.graphics.ColorSpace
@@ -26,8 +27,8 @@ import kotlin.system.exitProcess
  *
  * TabDesk talks to it over a socket on 127.0.0.1 ([HelperClient]): it must first send the token it started the
  * helper with, so no other app can use it. The helper then sends the task list whenever it changes, and takes a few
- * fixed commands (close, minimise, bring to front, move or resize a floating window, a preview picture); it never
- * runs anything it's sent.
+ * fixed commands (close, minimise, bring to front, move or resize a floating window, a preview picture, and for
+ * agent control reading the app in front, see [Reader]); it never runs anything it's sent.
  */
 object Helper {
     private const val TAG = "TabDeskHelper"
@@ -40,6 +41,22 @@ object Helper {
             "serve" -> serve()
             "tasks" -> tasks().map { it.line() }.ifEmpty { listOf("(no tasks)") }.forEach { println(it) }
             "usage" -> println(usage(args.getOrNull(1)?.toLongOrNull() ?: 1500).replace('\t', '\n'))
+            // What an agent would read of the app in front (or of <package> if it's in front): read [package|-]
+            // [item id|-] [depth, -1 all] [picture size, 0 none] [picture file].
+            "read" -> {
+                val front = Reader.front()
+                val pkg = args.getOrNull(1)?.takeIf { it != "-" } ?: front?.top
+                val r = Reader.read(pkg, front?.id ?: -1, args.getOrNull(2)?.takeIf { it != "-" },
+                    args.getOrNull(3)?.toIntOrNull() ?: -1, args.getOrNull(4)?.toIntOrNull() ?: 0)
+                (r.remove("picture") as? org.json.JSONObject)?.let { p ->
+                    val file = args.getOrElse(5) { "/data/local/tmp/read.jpg" }
+                    java.io.File(file).writeBytes(android.util.Base64.decode(p.remove("jpeg") as String, android.util.Base64.NO_WRAP))
+                    r.put("picture", p.put("file", file))
+                }
+                println(r.toString(1))
+                Reader.disconnect()
+                exitProcess(0)
+            }
             "close" -> println("close $id: ${close(id)}")
             "min" -> println("min $id: ${minimise(id)}")
             "front" -> println("front $id: ${front(id)}")
@@ -48,6 +65,14 @@ object Helper {
                 val jpeg = snapshot(id, args.getOrNull(2)?.toIntOrNull() ?: 480)
                 if (jpeg == null) println("shot $id: none")
                 else { java.io.File(args.getOrElse(3) { "/data/local/tmp/shot.jpg" }).writeBytes(jpeg); println("shot $id: ${jpeg.size} bytes") }
+            }
+            // The windows on screen as the reader sees them: type, layer, task, bounds, package and title.
+            "windows" -> {
+                repeat(args.getOrNull(1)?.toIntOrNull() ?: 1) { i ->
+                    if (i > 0) { Thread.sleep(300); println("--") }
+                    Reader.windows().forEach { println(it) }
+                }
+                Reader.disconnect(); exitProcess(0)
             }
             // The system calls with this word in their name, as this Android version has them.
             "methods" -> atm.javaClass.methods.filter { it.name.contains(args.getOrElse(1) { "" }, true) }
@@ -60,37 +85,44 @@ object Helper {
             "call" -> println("${args[1]}: ${call(atm, args[1], *args.drop(2).map { it.toInt() }.toTypedArray())}")
             "ints" -> println("${args[1]}: ${call(atm, args[1], args.drop(2).map { it.toInt() }.toIntArray())}")
             else -> println("usage: serve | tasks | usage [ms] | close|min|front <task id> | resize <task id> <l> <t> <r> <b> | " +
-                "shot <task id> [size] [file] | methods <word> | iface <class> [word] | call|ints <method> <numbers…>")
+                "shot <task id> [size] [file] | read [package|-] [id|-] [depth] [size] [file] | methods <word> | " +
+                "iface <class> [word] | call|ints <method> <numbers…>")
         }
     }
 
     // ---------------------------------------------------------------- tasks
 
-    private val atm: Any by lazy { Class.forName("android.app.ActivityTaskManager").getMethod("getService").invoke(null)!! }
+    internal val atm: Any by lazy { Class.forName("android.app.ActivityTaskManager").getMethod("getService").invoke(null)!! }
     private val int = Int::class.javaPrimitiveType
 
     /**
      * One task, as the taskbar needs it. [mode] is how its window is shown (1 full screen, 5 floating, 6 split
      * screen, 0 unknown); [bounds] is where, as "left,top,right,bottom". [focused]: the window the user is using.
      * [cls]: the activity the task was started with, which tells TabDesk's own windows (Files, Tasks) apart.
+     * [top]: the package of the screen on top of the task, which may be another app's (a sign-in, a share sheet).
      */
     class Task(val id: Int, val pkg: String, val running: Boolean, val visible: Boolean, val lastActive: Long,
-               val mode: Int, val focused: Boolean, val bounds: String, val cls: String) {
-        fun line() = "$id $pkg ${if (running) 1 else 0} ${if (visible) 1 else 0} $lastActive $mode ${if (focused) 1 else 0} $bounds $cls"
+               val mode: Int, val focused: Boolean, val bounds: String, val cls: String, val top: String) {
+        fun line() = "$id $pkg ${if (running) 1 else 0} ${if (visible) 1 else 0} $lastActive $mode ${if (focused) 1 else 0} $bounds $cls $top"
+
+        /** [bounds] as a Rect; null if unknown. */
+        fun rect(): Rect? = bounds.split(',').mapNotNull { it.toIntOrNull() }.takeIf { it.size == 4 }
+            ?.let { Rect(it[0], it[1], it[2], it[3]) }?.takeIf { !it.isEmpty }
     }
 
     /** Closes a task, as swiping it away in Recents does. */
     private fun close(taskId: Int) = atm.javaClass.getMethod("removeTask", int).invoke(atm, taskId) as Boolean
 
     /** The tasks in Recents, newest first. */
-    private fun tasks(): List<Task> = recentTasks().mapNotNull { t ->
+    internal fun tasks(): List<Task> = recentTasks().mapNotNull { t ->
         val component = (field(t, "baseIntent") as? Intent)?.component ?: return@mapNotNull null
         val wc = windowConfig(t)
         val mode = try { wc?.javaClass?.getMethod("getWindowingMode")?.invoke(wc) as? Int } catch (_: Throwable) { null } ?: 0
         val b = try { wc?.javaClass?.getMethod("getBounds")?.invoke(wc) as? Rect } catch (_: Throwable) { null }
         Task(field(t, "taskId") as Int, component.packageName, field(t, "isRunning") == true, field(t, "isVisible") == true,
             (field(t, "lastActiveTime") as? Long) ?: 0L, mode, field(t, "isFocused") == true,
-            b?.let { "${it.left},${it.top},${it.right},${it.bottom}" } ?: "-", component.className)
+            b?.let { "${it.left},${it.top},${it.right},${it.bottom}" } ?: "-", component.className,
+            (field(t, "topActivity") as? ComponentName)?.packageName ?: component.packageName)
     }
 
     private fun recentTasks(): List<Any> {
@@ -197,19 +229,7 @@ object Helper {
      * for Recents, also while it's minimised. Null if there's none yet (e.g. a window that was never drawn).
      */
     private fun snapshot(taskId: Int, maxPx: Int): ByteArray? {
-        // The last one Android kept: (taskId, lowResolution), on some versions also (…, takeSnapshotIfNeeded).
-        val m = atm.javaClass.methods.firstOrNull { it.name == "getTaskSnapshot" }
-        var snap = m?.let { if (it.parameterTypes.size >= 3) it.invoke(atm, taskId, false, true) else it.invoke(atm, taskId, false) }
-        // None kept yet: take one now (a window on screen; Android 12L and later). updateCache, so the next is quick.
-        if (snap == null) snap = try { call(atm, "takeTaskSnapshot", taskId, true) } catch (e: Throwable) { log("takeTaskSnapshot", e); null }
-        if (snap == null) { Log.i(TAG, "no snapshot of $taskId"); return null }
-        val buffer = snap.javaClass.getMethod("getHardwareBuffer").invoke(snap) as? HardwareBuffer
-            ?: run { Log.i(TAG, "snapshot of $taskId has no buffer"); return null }
-        val space = try { snap.javaClass.getMethod("getColorSpace").invoke(snap) as? ColorSpace } catch (_: Throwable) { null }
-        val hw = Bitmap.wrapHardwareBuffer(buffer, space ?: ColorSpace.get(ColorSpace.Named.SRGB))
-            ?: run { Log.i(TAG, "can't wrap the snapshot of $taskId"); return null }
-        val full = hw.copy(Bitmap.Config.ARGB_8888, false) ?: run { Log.i(TAG, "can't copy the snapshot of $taskId"); return null }
-        hw.recycle(); buffer.close()
+        val full = taskPicture(taskId, fresh = false) ?: return null
         val scale = minOf(1f, maxPx.toFloat() / maxOf(full.width, full.height))
         val small = if (scale < 1f) Bitmap.createScaledBitmap(full, (full.width * scale).toInt().coerceAtLeast(1),
             (full.height * scale).toInt().coerceAtLeast(1), true) else full
@@ -220,16 +240,40 @@ object Helper {
         return out.toByteArray()
     }
 
-    private fun log(what: String, e: Throwable) = Log.w(TAG, "$what: ${(e as? java.lang.reflect.InvocationTargetException)?.cause ?: e}")
+    /**
+     * A task's window alone, as Recents keeps it: the last picture Android kept, or with [fresh] (or none kept yet)
+     * one taken now (a window on screen; Android 12L and later). Null if there's none.
+     */
+    internal fun taskPicture(taskId: Int, fresh: Boolean): Bitmap? {
+        var snap: Any? = null
+        if (!fresh) {
+            // The last one Android kept: (taskId, lowResolution), on some versions also (…, takeSnapshotIfNeeded).
+            val m = atm.javaClass.methods.firstOrNull { it.name == "getTaskSnapshot" }
+            snap = m?.let { if (it.parameterTypes.size >= 3) it.invoke(atm, taskId, false, true) else it.invoke(atm, taskId, false) }
+        }
+        // updateCache, so the taskbar's next preview is quick too.
+        if (snap == null) snap = try { call(atm, "takeTaskSnapshot", taskId, true) } catch (e: Throwable) { log("takeTaskSnapshot", e); null }
+        if (snap == null) { Log.i(TAG, "no snapshot of $taskId"); return null }
+        val buffer = snap.javaClass.getMethod("getHardwareBuffer").invoke(snap) as? HardwareBuffer
+            ?: run { Log.i(TAG, "snapshot of $taskId has no buffer"); return null }
+        val space = try { snap.javaClass.getMethod("getColorSpace").invoke(snap) as? ColorSpace } catch (_: Throwable) { null }
+        val hw = Bitmap.wrapHardwareBuffer(buffer, space ?: ColorSpace.get(ColorSpace.Named.SRGB))
+            ?: run { Log.i(TAG, "can't wrap the snapshot of $taskId"); return null }
+        val full = hw.copy(Bitmap.Config.ARGB_8888, false)
+        hw.recycle(); buffer.close()
+        return full ?: run { Log.i(TAG, "can't copy the snapshot of $taskId"); null }
+    }
+
+    internal fun log(what: String, e: Throwable) = Log.w(TAG, "$what: ${(e as? java.lang.reflect.InvocationTargetException)?.cause ?: e}")
 
     /** Calls the system method [name] that takes as many arguments as given (the types differ between versions). */
-    private fun call(o: Any, name: String, vararg args: Any?): Any? {
+    internal fun call(o: Any, name: String, vararg args: Any?): Any? {
         val m = o.javaClass.methods.firstOrNull { it.name == name && it.parameterTypes.size == args.size }
             ?: throw NoSuchMethodException("$name/${args.size}")
         return m.invoke(o, *args)
     }
 
-    private fun field(o: Any, name: String): Any? {
+    internal fun field(o: Any, name: String): Any? {
         var c: Class<*>? = o.javaClass
         while (c != null) {
             try { return c.getDeclaredField(name).apply { isAccessible = true }.get(o) } catch (_: NoSuchFieldException) { c = c.superclass }
@@ -416,11 +460,29 @@ object Helper {
                             synchronized(lock) { write(out, line) }
                         }
                     }
+                    // Reading for agent control (see [Reader]): "read <request> <package> <task id> <item id|-> <depth>
+                    // <picture size>", answered "read <request> <JSON>". Off this thread: it takes a moment.
+                    "read" -> if (w.size >= 7) {
+                        val req = w[1]
+                        thread(name = "read", isDaemon = true) {
+                            val r = try {
+                                Reader.read(w[2], w[3].toIntOrNull() ?: -1, w[4].takeIf { it != "-" }, w[5].toIntOrNull() ?: 0,
+                                    w[6].toIntOrNull()?.coerceIn(0, 2048) ?: 0)
+                            } catch (e: Throwable) { log("read", e); org.json.JSONObject().put("ok", false).put("why", "failed") }
+                            synchronized(lock) { write(out, "read $req $r") }
+                        }
+                    }
+                    // Control went idle or was stopped: stop reading the screen (UiAutomation counts as an
+                    // accessibility service while it's connected).
+                    "unread" -> thread(isDaemon = true) { Reader.disconnect() }
+                    // Wakes the screen, as the power button does (never past the lock screen).
+                    "wake" -> try { Runtime.getRuntime().exec(arrayOf("input", "keyevent", "KEYCODE_WAKEUP")) } catch (e: Throwable) { log("wake", e) }
                     "ping" -> synchronized(lock) { write(out, "pong") }
                     "quit" -> { Log.i(TAG, "asked to quit"); exitProcess(0) }
                 }
             }
             synchronized(lock) { if (client === out) client = null }
+            thread(isDaemon = true) { Reader.disconnect() }
         }
     }
 

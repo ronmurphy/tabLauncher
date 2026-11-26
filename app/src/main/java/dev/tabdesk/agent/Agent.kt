@@ -53,6 +53,8 @@ object Agent {
 
     @Volatile var enabled = false; private set
     @Volatile var nameAll = false; private set
+    /** "Let the agent wake the screen": a read or open_app with the screen off wakes it (never past the lock). */
+    @Volatile var wake = false; private set
     @Volatile private var tabletName: String? = null
     private val approvals = LinkedHashMap<String, Approval>()
     private val asked = LinkedHashMap<String, Asked>()
@@ -179,6 +181,11 @@ object Agent {
 
     fun setAllowed(pkg: String, on: Boolean) {
         synchronized(this) { if (on) allowed += pkg else allowed -= pkg; save() }
+        changed("")
+    }
+
+    fun setWake(on: Boolean) {
+        synchronized(this) { wake = on; save() }
         changed("")
     }
 
@@ -373,6 +380,7 @@ object Agent {
         val o = try { JSONObject(file.readText()) } catch (_: Exception) { JSONObject() }
         enabled = o.optBoolean("enabled")
         nameAll = o.optBoolean("nameAll")
+        wake = o.optBoolean("wake")
         tabletName = o.optString("tablet").takeIf { it.isNotEmpty() }
         o.optJSONArray("approved")?.let { a -> for (i in 0 until a.length()) a.getJSONObject(i).let {
             approvals[it.getString("pkg")] = Approval(it.getString("pkg"), it.getString("cert"), it.getLong("since"), it.optBoolean("warned"))
@@ -385,7 +393,7 @@ object Agent {
 
     /** Called with the lock held. Written whole to a new file, then renamed over the old one. */
     private fun save() {
-        val o = JSONObject().put("enabled", enabled).put("nameAll", nameAll).put("tablet", tabletName ?: "")
+        val o = JSONObject().put("enabled", enabled).put("nameAll", nameAll).put("wake", wake).put("tablet", tabletName ?: "")
             .put("approved", JSONArray(approvals.values.map {
                 JSONObject().put("pkg", it.pkg).put("cert", it.cert).put("since", it.since).put("warned", it.warned) }))
             .put("asked", JSONArray(asked.values.map {

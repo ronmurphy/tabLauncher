@@ -6,12 +6,17 @@
 #   tools/agentcaller/run.sh call usage '{"limit":5}'
 #   tools/agentcaller/run.sh cancel c1:4
 #   tools/agentcaller/run.sh burst 6
+#   tools/agentcaller/run.sh pw               shows a password field holding "hunter2" (screen reader tests)
 #   tools/agentcaller/run.sh log              what it has logged so far
 # Usage: [SERIAL=emulator-5554] tools/agentcaller/run.sh <command> [args]
 set -e
 serial=${SERIAL:-emulator-5554}
 here=$(cd "$(dirname "$0")" && pwd)
-start() { adb -s "$serial" shell am start -n dev.tabdesk.agentcaller/.MainActivity "$@" >/dev/null; }
+# Commands go as broadcasts, so the app in front stays there (FRONT=1: the caller's own window comes to the front).
+start() {
+  if [ -n "$FRONT" ]; then adb -s "$serial" shell am start -n dev.tabdesk.agentcaller/.MainActivity "$@" >/dev/null
+  else adb -s "$serial" shell am broadcast -n dev.tabdesk.agentcaller/.CommandReceiver "$@" >/dev/null; fi
+}
 case "$1" in
   build|build-alt)
     alt=""
@@ -26,6 +31,7 @@ case "$1" in
   call) start --es cmd call --es tool "$2" --es args64 "$(printf '%s' "${3:-{\}}" | base64 -w0)" ;;
   cancel) start --es cmd cancel --es id "$2" ;;
   burst) start --es cmd burst --es n "${2:-6}" ;;
+  pw) FRONT=1 start --es cmd pw ;;
   raw) start --es cmd raw --es b64 "$(printf '%s' "$2" | base64 -w0)" ;;
   *) start --es cmd "$1" ;;
 esac

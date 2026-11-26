@@ -109,8 +109,9 @@ the tablet is rotated:
 - **Helper**: setting up the running-apps helper, step by step, and whether it's running
 - **Agent**: letting an app such as DroidACP give an AI agent use of the tablet: the master switch (off
   by default), the apps that asked and the approved ones (each approval lasts a week; Keep allowing
-  renews it, Revoke takes it back), whether the agent may see the names of running apps, the tablet's
-  name, and a log of the recent calls. See [Agent control](#agent-control)
+  renews it, Revoke takes it back), the apps the agent may read and open (none until you switch them
+  on), whether it may see the names of running apps or wake the screen, the tablet's name, and a log of
+  the recent calls. See [Agent control](#agent-control)
 - **Backup**: export, import, undo import
 
 Start shows a "Recently added" section for apps installed in the last 14 days.
@@ -296,7 +297,9 @@ adb shell cmd package set-home-activity com.zui.launcher/.drawer.DrawerLauncher
   messages, the checks before each call, one call at a time per caller, answers by reply or by pipe
 - `Agent.kt`: the master switch, approvals and their weekly renewal, who is using the tablet now (idle,
   active, stopped), and the notifications; kept in `no_backup/`, so no backup carries an approval over
-- `Tools.kt`: the tool list and the tools (`apps`, `usage`), and the shapes of results and refusals
+- `Tools.kt`: the tool list, the tools `apps`, `open_app` and `usage`, and the shapes of results and refusals
+- `ScreenTools.kt`: `screen` and `get_item`: the checks before a read (screen on and unlocked, an allowed app
+  in front), turning what the helper read into the agent's items, and the last read for item ids
 - `Never.kt`: the apps the agent can never read or use, worked out on the tablet
 - `AgentLog.kt`: the last 500 calls, without what was read
 - `AgentReceiver.kt`, `AgentSettingsActivity.kt`: Stop and Continue on the notification and the weekly
@@ -380,10 +383,16 @@ is kept outside the repo.
   on its own tablet setting; TabDesk then posts "<app> wants to use this tablet", and you approve it on
   that page, never in a pop-up. An approval is tied to the app's signing certificate and lasts a week;
   TabDesk reminds you the day before, and Keep allowing gives it another week.
-- **What an agent can do so far:** `apps` (the apps you allow, and which app is in front) and `usage`
-  (the CPU, memory and battery, and each running app's share, as TabDesk Tasks shows them). An app you
-  haven't allowed shows as "blocked app" unless you switch on "Let the agent see which apps are running".
-  Reading the screen of apps you allow comes next.
+- **What an agent can do so far:** read the app in front if you've allowed it (`screen`: its buttons,
+  text and fields, optionally with a screenshot of that app alone; `get_item`), open an app you've
+  allowed (`open_app`), list them (`apps`), and see how busy the tablet is (`usage`: the CPU, memory and
+  battery, and each running app's share, as TabDesk Tasks shows them). An app you haven't allowed shows
+  as "blocked app" unless you switch on "Let the agent see which apps are running". Tapping and typing
+  come later.
+- **How it reads:** TabDesk's helper reads the screen through Android's UiAutomation (as `uiautomator`
+  does), only while an app is using the tablet, and only the allowed app in front. It never reads a
+  password field's text. Windows over the app (the keyboard, a notification, another app) are named
+  only as far as you've allowed, and blacked out of screenshots, as is the status bar.
 - **Never:** TabDesk itself (home screen, Files, Tasks, Customize), System UI, Settings, the keyboard,
   Google Play services, the file picker, package installers, or any app that asked to use the tablet.
 - **While an app is using it,** the taskbar and a notification say so, with **Stop**. Stop refuses

@@ -31,7 +31,13 @@ it over adb as `emulator-5554`:
     adb -s emulator-5554 install app/build/outputs/apk/release/app-release.apk
     tools/emulator/shot.sh /tmp/shot.png        # half-size screenshot: tap at twice what you see
     tools/emulator/find.sh "Build number"       # where some text is on screen, in real pixels
+    tools/emulator/helper.sh read - - -1 1024   # what an agent reads of the app in front, with a 1024 px picture
+                                                # (then: adb exec-out cat /data/local/tmp/read.jpg > read.jpg)
+    tools/emulator/helper.sh windows            # the windows on screen: type, layer, task, bounds, package
     adb -s emulator-5554 emu kill               # shut it down (its data is kept)
+
+`find.sh` and `helper.sh read` each need Android's one UiAutomation connection: neither works while the other, or
+TabDesk's helper, is reading (it lets go 15 s after an agent's last call).
 
 Before a release, `./gradlew lintDebug` also catches calls that need a newer Android than 12.
 
@@ -63,7 +69,9 @@ remove with `adb uninstall dev.tabdesk.testpack`. `testpack-src.tgz` has its man
 
 A small app (package `dev.tabdesk.agentcaller`, "Agent caller (test)") that binds TabDesk's agent service and
 sends it MCP messages the way DroidACP does (plan T9, `docs/agent-control.md`). It's a separate Gradle project,
-so TabDesk's own build never includes it. Everything it hears is logged with the tag `AgentCaller`.
+so TabDesk's own build never includes it. Everything it hears is logged with the tag `AgentCaller`. Commands go
+to it as broadcasts, so the app in front stays in front to be read (the caller itself is never readable, as the
+app that asked).
 
 ```sh
 export SERIAL=emulator-5554                       # never the user's tablet before the branch's review
@@ -72,6 +80,9 @@ tools/agentcaller/run.sh bind; tools/agentcaller/run.sh connect; tools/agentcall
 tools/agentcaller/run.sh call usage '{"limit":5}' # then approve it in Customize → Agent and call again
 tools/agentcaller/run.sh cancel c1:4              # the ids it logs
 tools/agentcaller/run.sh burst 6                  # six calls at once: the rate limit refuses two
+tools/agentcaller/run.sh call open_app '{"app":"Clock"}'   # after switching Clock on in Customize → Agent
+tools/agentcaller/run.sh call screen '{"screenshot":"small"}'
+tools/agentcaller/run.sh pw                       # a password field holding "hunter2", to check it's never read
 tools/agentcaller/run.sh build-alt                # the same app with another key (uninstall it first)
 tools/agentcaller/run.sh log
 ```

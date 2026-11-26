@@ -69,7 +69,11 @@ class AgentService : Service() {
 
     private val callers = ConcurrentHashMap<Int, Caller>()
     private val main = Handler(Looper.getMainLooper())
-    private val onState: (String) -> Unit = { pushStates() }
+    private val onState: (String) -> Unit = {
+        pushStates()
+        // UiAutomation counts as an accessibility service while the helper reads: let go of it once control isn't active.
+        if (Agent.control != Agent.ACTIVE) HelperClient.stopReading()
+    }
 
     override fun onCreate() {
         super.onCreate()
@@ -281,7 +285,7 @@ class AgentService : Service() {
             if (refusal != null) refusal to null
             else {
                 Agent.beginCall(c.pkg); began = true
-                Tools.run(this, tool, args, deadline)
+                Tools.run(this, c.pkg, tool, args, deadline)
             }
         } catch (e: InterruptedException) {
             return   // cancelled

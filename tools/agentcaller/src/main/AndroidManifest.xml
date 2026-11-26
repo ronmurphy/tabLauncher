@@ -14,5 +14,7 @@
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
         </activity>
+        <!-- The same commands as broadcasts, which leave whatever app is in front where it is (to read it). -->
+        <receiver android:name=".CommandReceiver" android:exported="true" />
     </application>
 </manifest>
