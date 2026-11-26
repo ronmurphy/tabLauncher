@@ -305,6 +305,49 @@ TabDesk speaks MCP 2025-06-18 and 2025-11-25. The `protocolVersion` is the clien
 otherwise 2025-11-25, as MCP asks: never a version TabDesk doesn't know. TabDesk uses nothing that differs between
 the two. (changed after the code review, 2026-11-26: it used to echo any newer date)
 
+## Who the agent is: `_meta` on `tools/call` (added 2026-11-26, optional)
+
+While an agent uses the tablet, TabDesk's taskbar shows it as its Pixel Person (DroidACP's `docs/PIXEL-PEOPLE.md`,
+drawn from the same `sprites.txt`), posed by what it's doing, beside "<app> is using the tablet". The agent's host
+can say who the agent is in each `tools/call`'s `params._meta`:
+
+```json
+"_meta": {
+  "dev.tabdesk/agent": {
+    "name": "tabLauncher",
+    "agent": "claude-code-acp",
+    "model": "Opus 5.5",
+    "person": { "skin": "medium", "hair": "swoop", "haircolor": "teal", "accessories": ["glasses", "headphones"],
+                "letter": "T", "shirt": "yellow" }
+  }
+}
+```
+
+- **`name`**: the agent's chat or project, as the host names it (PlasmaLLM's tab). It's shown above the approved
+  app's own line, so the pill reads "tabLauncher / DroidACP is using the tablet".
+- **`agent`**: the agent's ACP `agentInfo` name. It picks the colours of the bar under the person (DroidACP's
+  `agent` table: Claude's orange, and so on).
+- **`model`**: shown in the person's tooltip and to TalkBack.
+- **`person`**: the look the agent chose, exactly as PlasmaLLM sends it to DroidACP as a tab's `person` (companion
+  protocol 11). A part it didn't choose, or an id TabDesk's copy of `sprites.txt` doesn't have, is drawn as the
+  default's; `"letter": "none"` is a plain shirt, and `"shirt": "agent"` is the agent's colours.
+
+All of it is optional, and each call says it afresh: a call without it is drawn as a default look for the approved
+app, with its first letter. It's only drawn, never trusted: it decides nothing, the texts are cut short (32 or 40
+characters) and kept to letters, digits and plain punctuation, and the approved app's own name, from Binder, is
+always on the pill as well. Neither version changes: an older TabDesk ignores it.
+
+The pose, from the call:
+
+| What the agent is doing | Pose |
+|---|---|
+| `screen`, `open_app`, and tool list 2's acting | `tablet` |
+| `get_item` | `search` |
+| `apps`, `usage` | `book` |
+| between calls | `think` |
+| between calls, after a call that was refused or failed | `oops` |
+| stopped or paused | `stop` |
+
 ## Results
 
 TabDesk's tools never use MCP's "input required" results, subscriptions or progress notifications. Every

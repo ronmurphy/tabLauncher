@@ -93,6 +93,8 @@ tools/agentcaller/run.sh call open_app '{"app":"Clock"}'   # after switching Clo
 tools/agentcaller/run.sh call screen '{"screenshot":"small"}'
 tools/agentcaller/run.sh pw                       # a password field holding "hunter2", to check it's never read
 tools/agentcaller/run.sh over                     # pw, with seethrough/'s see-through card over it in the same task
+META='{"dev.tabdesk/agent":{"name":"tabLauncher","agent":"claude","person":{"hair":"swoop","haircolor":"teal"}}}' \
+  tools/agentcaller/run.sh call apps              # with the call's _meta: the agent's Pixel Person on the taskbar
 TWO=1 tools/agentcaller/run.sh build              # a second caller ("Agent caller 2", logs as AgentCaller2), to
 TWO=1 tools/agentcaller/run.sh call apps          #   test two approved apps: busy, and Stop and Resume
 tools/agentcaller/run.sh build-alt                # the same app with another key (uninstall it first)

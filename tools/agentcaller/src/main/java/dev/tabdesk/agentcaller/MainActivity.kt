@@ -25,7 +25,8 @@ import kotlin.concurrent.thread
  * whatever app is in front there (to read it). Everything that happens is logged with the tag AgentCaller, e.g.
  * "REPLY c1:3 {…}".
  *
- * Commands (extra "cmd"): bind, unbind, version, status, connect, init, list, call (extras "tool", "args" JSON),
+ * Commands (extra "cmd"): bind, unbind, version, status, connect, init, list, call (extras "tool", "args" JSON, and
+ * "meta64", the call's `_meta` as base64 JSON),
  * raw (extra "json" or "b64"), cancel (extra "id"), stop, resume, burst (extra "n": that many usage calls at once),
  * die (the process exits, as if it crashed), pw (shows a password field holding "hunter2", for the screen reader's tests),
  * over (pw, then tools/seethrough's see-through card over it in this task).
@@ -152,7 +153,11 @@ object Caller {
             "list" -> send(request("tools/list"))
             "call" -> send(request("tools/call", JSONObject().put("name", i.getStringExtra("tool"))
                 .put("arguments", JSONObject(i.getStringExtra("args")
-                    ?: i.getStringExtra("args64")?.let { String(Base64.decode(it, Base64.DEFAULT)) } ?: "{}"))))
+                    ?: i.getStringExtra("args64")?.let { String(Base64.decode(it, Base64.DEFAULT)) } ?: "{}"))
+                .also { p ->
+                    // As an agent's host would send it: who the agent is, for its Pixel Person on TabDesk's taskbar.
+                    i.getStringExtra("meta64")?.let { p.put("_meta", JSONObject(String(Base64.decode(it, Base64.DEFAULT)))) }
+                }))
             "raw" -> {
                 val json = i.getStringExtra("json") ?: String(Base64.decode(i.getStringExtra("b64") ?: "", Base64.DEFAULT))
                 val s = service ?: return log("ERROR not bound")

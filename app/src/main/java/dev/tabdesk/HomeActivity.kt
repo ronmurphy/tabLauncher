@@ -72,6 +72,8 @@ class HomeActivity : TabActivity() {
     private val tasksListener: () -> Unit = { taskbar.bindRecents(force = false); taskbar.bindHelper(); Windows.track(this) }
     private val updatesListener: () -> Unit = { Customize.refreshIf(this, Customize.ABOUT) }
     private val agentListener: () -> Unit = { taskbar.bindAgent(); Customize.refreshIf(this, Customize.AGENT) }
+    /** Each call the agent makes: its Pixel Person's pose, and its name. */
+    private val personListener: () -> Unit = { taskbar.bindAgent() }
 
     private val batteryReceiver = object : BroadcastReceiver() {
         override fun onReceive(c: Context, i: Intent) {
@@ -130,6 +132,7 @@ class HomeActivity : TabActivity() {
         HelperClient.listeners += tasksListener
         dev.tabdesk.agent.Agent.init(this)
         dev.tabdesk.agent.Agent.listeners += agentListener
+        dev.tabdesk.agent.AgentPerson.listeners += personListener
         if (Setup.ready(this)) HelperClient.ensure(this)
         Updates.onChange = updatesListener
         Updates.afterStart(this)
@@ -183,6 +186,7 @@ class HomeActivity : TabActivity() {
         HelperClient.listeners -= setupListener
         HelperClient.listeners -= tasksListener
         dev.tabdesk.agent.Agent.listeners -= agentListener
+        dev.tabdesk.agent.AgentPerson.listeners -= personListener
         Apps.listeners -= appsListener
         Badges.listeners -= badgeListener
         WallpaperManager.getInstance(this).removeOnColorsChangedListener(wallpaperListener)

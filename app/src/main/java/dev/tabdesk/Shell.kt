@@ -1,7 +1,9 @@
 package dev.tabdesk
 
 import dev.tabdesk.agent.Agent
+import dev.tabdesk.agent.AgentPerson
 import dev.tabdesk.agent.AgentService
+import dev.tabdesk.people.PersonView
 import dev.tabdesk.customize.Customize
 import dev.tabdesk.helper.AdbKey
 import dev.tabdesk.helper.HelperClient
@@ -58,6 +60,8 @@ class Taskbar(private val act: HomeActivity) : LinearLayout(act) {
     private val agentPill = LinearLayout(act)
     private val agentText = TextView(act)
     private val agentBtn = RoomyText(act)
+    /** The agent itself, as its Pixel Person, posed by what it's doing (AgentPerson). */
+    private val agentPerson = PersonView(act)
 
     /** Lit while the widget dock is open. */
     fun setDockActive(on: Boolean) {
@@ -109,8 +113,13 @@ class Taskbar(private val act: HomeActivity) : LinearLayout(act) {
         strip.addView(recents, llp(WRAP, MATCH))
         addView(strip, llp(0, MATCH, 1f))
 
-        // While an app lets an agent use the tablet: who, and Stop (Continue once stopped). The agent can never
-        // read or tap the taskbar, so only a person can press it.
+        // While an app lets an agent use the tablet: the agent as its Pixel Person, who, and Stop (Continue once
+        // stopped). The agent can never read or tap the taskbar, so only a person can press it.
+        agentPerson.apply {
+            visibility = GONE
+            setOnClickListener { act.showSettings(Customize.AGENT) }
+        }
+        addView(agentPerson, llp(WRAP, MATCH).apply { marginEnd = dp(4) })
         agentPill.apply {
             orientation = HORIZONTAL
             gravity = Gravity.CENTER_VERTICAL
@@ -188,10 +197,40 @@ class Taskbar(private val act: HomeActivity) : LinearLayout(act) {
 
     fun bindAgent() {
         val state = Agent.control
-        if (state == Agent.IDLE || Agent.controller == null) { agentPill.visibility = GONE; return }
+        val pkg = Agent.controller
+        if (state == Agent.IDLE || pkg == null) { agentPill.visibility = GONE; agentPerson.visibility = GONE; return }
         agentPill.visibility = VISIBLE
-        agentText.text = Agent.usingText()
         agentBtn.text = if (state == Agent.ACTIVE) "Stop" else "Continue"
+        // The agent's own name, as its app sends it, goes over the approved app's: that one is always shown.
+        val own = AgentPerson.who?.name?.takeIf { AgentPerson.pkg == pkg }
+        agentText.isSingleLine = own == null
+        agentText.maxLines = if (own != null) 2 else 1
+        agentText.text = if (own == null) Agent.usingText() else android.text.SpannableStringBuilder().apply {
+            append(own)
+            append("\n")
+            val from = length
+            append(Agent.usingText())
+            setSpan(android.text.style.RelativeSizeSpan(0.85f), from, length, 0)
+            setSpan(android.text.style.ForegroundColorSpan(pal.textDim), from, length, 0)
+        }
+        bindPerson()
+    }
+
+    /** The agent's Pixel Person: who it says it is, posed by what it's doing. */
+    fun bindPerson() {
+        val pkg = Agent.controller
+        if (Agent.control == Agent.IDLE || pkg == null) { agentPerson.visibility = GONE; return }
+        val app = Agent.label(pkg)
+        // Another app's person isn't this one's: draw the approved app's default until its own call begins.
+        val mine = AgentPerson.pkg == pkg
+        val look = if (mine) AgentPerson.look(act, app) else dev.tabdesk.people.PixelPeople.get(act).defaultLook(pkg, "unknown", app.firstOrNull())
+        val pose = if (mine) AgentPerson.pose(Agent.control) else "think"
+        agentPerson.show(look, pose)
+        val who = AgentPerson.who?.takeIf { mine }
+        val name = who?.name?.let { n -> n + (who.model?.let { " ($it)" } ?: "") + ", through $app" } ?: app
+        agentPerson.contentDescription = "$name: " + (if (mine) AgentPerson.doing(Agent.control) else "using the tablet")
+        agentPerson.tooltipText = agentPerson.contentDescription
+        agentPerson.visibility = VISIBLE
     }
 
     fun bindHelper() {

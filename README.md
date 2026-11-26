@@ -302,8 +302,16 @@ adb shell cmd package set-home-activity com.zui.launcher/.drawer.DrawerLauncher
   in front), turning what the helper read into the agent's items, and the last read for item ids
 - `Never.kt`: the apps the agent can never read or use, worked out on the tablet
 - `AgentLog.kt`: the last 500 calls, without what was read
+- `AgentPerson.kt`: the agent as its Pixel Person on the taskbar: who it says it is (each call's `_meta`,
+  only drawn, never trusted) and its pose from what it's doing
 - `AgentReceiver.kt`, `AgentSettingsActivity.kt`: Stop and Continue on the notification and the weekly
   alarm; `dev.tabdesk.action.AGENT_SETTINGS`, which opens Customize → Agent
+
+`people/`: the Pixel People, ported from DroidACP so both apps draw the same people
+
+- `PixelPeople.kt`: reads `assets/people/sprites.txt` (DroidACP's file, copied as it is) and draws a person
+  in a pose, 32 x 32 pixels, and the bar in its agent's colours; keep it in step with DroidACP's
+- `PersonView.kt`: one person on its bar, a whole number of screen pixels per sprite pixel, unsmoothed
 
 `helper/`: the running-apps helper
 
@@ -400,6 +408,12 @@ is kept outside the repo.
 - **While an app is using it,** the taskbar and a notification say so, with **Stop**. Stop refuses
   everything until you send your next chat message or tap Continue. Another approved app gets "busy"
   meanwhile, and can't stop or resume it.
+- **The agent itself** stands beside that on the taskbar as its Pixel Person, the small person
+  DroidACP draws for each agent, posed by what it's doing: holding a tablet while it reads the screen
+  or opens an app, a magnifying glass for one item, a book for the app list and `usage`, thinking
+  between calls, a sweat drop after a refusal, and hands up when stopped. Its look and name come from
+  the agent's host with each call; without them it's a default person for the approved app. The
+  approved app's own name always stays on the pill.
 - **Every call is logged** (the last 500, in Customize → Agent): when, which app, what it asked for,
   and the outcome, never what was read.
 

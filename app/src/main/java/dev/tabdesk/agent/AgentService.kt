@@ -270,9 +270,11 @@ class AgentService : Service() {
                     answer(c, id, null, rpcResult(mcpId, Tools.refused("rate_limited", "Too many calls waiting: wait for some to finish.")))
                     return
                 }
+                // Who the agent says it is, only to draw it on the taskbar (AgentPerson): it decides nothing.
+                val who = AgentPerson.parse(params.optJSONObject("_meta"))
                 val call = Call(id, mcpId)
                 c.running[id] = call
-                call.future = c.exec.submit { runCall(c, call, tool, args) }
+                call.future = c.exec.submit { runCall(c, call, tool, args, who) }
             }
             else -> answer(c, id, null, rpcError(mcpId, -32601, "Unknown method: $method"))
         }
@@ -296,7 +298,7 @@ class AgentService : Service() {
     }
 
     /** One tools/call, on the caller's own thread: the checks in Part 3's order, then the tool. */
-    private fun runCall(c: Caller, call: Call, tool: Tools.Tool, args: JSONObject) {
+    private fun runCall(c: Caller, call: Call, tool: Tools.Tool, args: JSONObject, who: AgentPerson.Who?) {
         val deadline = System.currentTimeMillis() + tool.longestMs
         var began = false
         var checked = false   // whether the checks passed, so it's a real call (logged every time)
@@ -306,9 +308,11 @@ class AgentService : Service() {
             if (refusal != null) refusal to null
             else {
                 began = true; checked = true
+                AgentPerson.began(c.pkg, tool.name, who)
                 Tools.run(this, c.pkg, tool, args, deadline)
             }
         } catch (e: InterruptedException) {
+            if (began) AgentPerson.ended(c.pkg, failed = false)
             c.running.remove(call.id, call)
             return   // cancelled
         } catch (e: Exception) {
@@ -318,6 +322,7 @@ class AgentService : Service() {
             if (began) Agent.endCall()
         }
         val outcome = Tools.outcome(result)
+        if (began) AgentPerson.ended(c.pkg, failed = outcome != "ok")
         if (checked || quietEnough(c, outcome)) AgentLog.add(c.pkg, tool.name, front, outcome)
         // A cancelled call was taken out of running when it was cancelled, and gets no answer.
         if (!call.cancelled) answer(c, call.id, call, rpcResult(call.mcpId, result)) else c.running.remove(call.id, call)

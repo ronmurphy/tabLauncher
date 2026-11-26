@@ -4,6 +4,8 @@
 #   tools/agentcaller/run.sh build-alt        the same app signed with another key (certificate test)
 #   tools/agentcaller/run.sh bind | connect | status | version | init | list | stop | resume | unbind | die
 #   tools/agentcaller/run.sh call usage '{"limit":5}'
+#   META='{"dev.tabdesk/agent":{"name":"tabLauncher","agent":"claude","person":{"hair":"swoop"}}}' run.sh call apps
+#                                             the same, with the call's _meta (who the agent is, for its Pixel Person)
 #   tools/agentcaller/run.sh cancel c1:4
 #   tools/agentcaller/run.sh burst 6
 #   tools/agentcaller/run.sh pw               shows a password field holding "hunter2" (screen reader tests)
@@ -31,7 +33,9 @@ case "$1" in
     "$here/../../gradlew" -p "$here" --offline -q assembleDebug $alt $two
     adb -s "$serial" install -r "$here/build/outputs/apk/debug/AgentCaller-debug.apk" ;;
   log) adb -s "$serial" logcat -d -s $tag:I | grep -v "^-----" ;;
-  call) start --es cmd call --es tool "$2" --es args64 "$(printf '%s' "${3:-{\}}" | base64 -w0)" ;;
+  call)
+    if [ -n "$META" ]; then start --es cmd call --es tool "$2" --es args64 "$(printf '%s' "${3:-{\}}" | base64 -w0)" --es meta64 "$(printf '%s' "$META" | base64 -w0)"
+    else start --es cmd call --es tool "$2" --es args64 "$(printf '%s' "${3:-{\}}" | base64 -w0)"; fi ;;
   cancel) start --es cmd cancel --es id "$2" ;;
   burst) start --es cmd burst --es n "${2:-6}" ;;
   pw) FRONT=1 start --es cmd pw ;;

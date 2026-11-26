@@ -1,0 +1,1056 @@
+# Pixel People: one small person per agent, posed by what the agent is doing.
+#
+# Shared by DroidACP and TabDesk (and any app that wants them): a plain text format, so
+# both draw the same people from the same data. DroidACP's reader is
+# core/.../people/PixelPeople.kt; tools/pixelpeople/preview.py draws every pose as a PNG.
+#
+# Format: sections start with a keyword line; `grid <label> <x> <y>` is followed by rows
+# of one character per pixel, ended by a blank line. "." is transparent. Colours are the
+# palette's, except the ones a person's look sets:
+#   S s r   skin, its shade and blush (from `option skin`)
+#   H h     hair and its shade (from `option haircolor`)
+#   T t     shirt and its shade (the chosen `option shirt`, else the agent's colours from
+#           `agent`: one colour, or stripes row by row)
+#   L       the letter on the shirt (white or dark, whichever shows on the shirt)
+#   A a     an accessory's own colours (its `A` and `a` lines)
+#
+# Every pose is 32 x 32 pixels, drawn in the order of its lines (a grid ends at a blank line):
+#   use <name> <x> <y>     a shared part
+#   grid base|over <x> <y> pixels of its own
+#   @head                  the face, eyes, hair and accessories, at the pose's `head x y`
+#                          (a long hair's back is drawn first of all, under everything)
+#   letter <x> <y>         the shirt's letter, 3 x 5
+#   effect <name> <x> <y>  a bubble or sign
+# `eyes open|closed|down` picks the eyes; `head none` draws no person (an empty chair).
+#
+# The options are what an agent picks once, for its own Pixel Person: skin, hair,
+# haircolor, accessories (up to 2), a letter (A-Z, 0-9 or none) and a shirt colour. The
+# agent's own colours (`agent <id>`) are drawn as a bar under the person, so people from
+# different agents stay apart whatever they wear: 22 x 4 pixels, outlined in `k` (in `G`
+# when its colours are as dark as that, so it shows on a dark screen) with its corners left
+# out, the colours side by side in the middle two rows (the lower one shaded 0.8). Until an
+# agent chooses a shirt, it wears its agent's colours.
+
+palette
+k 26222B
+E 1E1B24
+M A24A4A
+W F4F4F4
+w C8CCD4
+g 8C919B
+G 4D515B
+P 3A4766
+p 2C364F
+B 5A3B2A
+U 6EC1F0
+u 3C7DB8
+N A0693A
+n 774A27
+Y F5C542
+y C99A1E
+R E5484D
+Q A8323A
+V 5CB85C
+C F7F1E1
+c C9BFA8
+Z 8FA7E8
+
+option skin
+pale FCE3D0
+light F6CFAE
+medium-light E3AC85
+medium C68A60
+medium-dark 8F5B3A
+dark 5C3A26
+
+option haircolor
+black 1F1C22
+dark-brown 3B2A20
+brown 6B4630
+auburn 8C3B22
+ginger D2691E
+blond E8C468
+platinum F1E6C0
+grey 9A9AA0
+white ECECEC
+blue 3F7BD9
+teal 2BA6A0
+green 4FA44F
+pink E77FB3
+purple 8E5BD6
+red C8323C
+
+option shirt
+red D64545
+orange E8833A
+yellow E8C547
+lime 9BCB3C
+green 3F9A55
+teal 2BA6A0
+cyan 3CB4D8
+blue 3F7BD9
+navy 2F4A7A
+purple 7A4FB0
+pink E77FB3
+maroon 8E2B3A
+brown 7A5236
+grey 8C919B
+black 2E2F33
+white EEEEEE
+
+# Each agent's colours (from the agent's own name in ACP's agentInfo): its bar, and its
+# shirt until it chooses one (stripes run row by row there).
+agent claude D97757
+agent gemini 4285F4 EA4335 FBBC05 34A853
+agent codex 202123
+agent copilot 8957E5
+agent qwen 615CED
+agent mistral FA520F FFD800
+agent deepseek 4D6BFE
+agent opencode 5F6670
+agent goose F2F2F2
+agent local 8C919B
+agent unknown E8E8E8
+
+face
+grid front 0 0
+..kkkkkkkk..
+.kSSSSSSSSk.
+kSSSSSSSSSSk
+kSSSSSSSSSSk
+kSSSSSSSSSSk
+kSSSSSSSSSSk
+kSSSSSSSSSSk
+kSrSSSSSSrSk
+.kSSSMMSSSk.
+..kkkkkkkk..
+
+eyes open 3,5 3,6 8,5 8,6
+eyes closed 2,6 3,6 8,6 9,6
+eyes down 3,6 8,6
+eyes up 3,5 8,5
+
+hair short
+grid front -1 -1
+..kkkkkkkkkk..
+.kHHHHHHHHHHk.
+kHHHHHHHHHHHHk
+kHHHHHHHHHHHHk
+kHHHhHHHHhHHHk
+kHHh......hHHk
+kHk........kHk
+
+hair long
+grid back -2 2
+.kkkkkkkkkkkkkk.
+kHHHHHHHHHHHHHHk
+kHHHHHHHHHHHHHHk
+kHHHHHHHHHHHHHHk
+kHHHHHHHHHHHHHHk
+kHHHHHHHHHHHHHHk
+kHHHHHHHHHHHHHHk
+kHHHHHHHHHHHHHHk
+kHHHHHHHHHHHHHHk
+kHHHHHHHHHHHHHHk
+khHHHHHHHHHHHHhk
+.kkkkkkkkkkkkkk.
+
+grid front -1 -1
+..kkkkkkkkkk..
+.kHHHHHHHHHHk.
+kHHHHHHHHHHHHk
+kHHHHHHHHHHHHk
+kHHHhHHHHhHHHk
+kHHh......hHHk
+kHk........kHk
+kHk........kHk
+kHk........kHk
+
+hair bob
+grid front -1 -1
+..kkkkkkkkkk..
+.kHHHHHHHHHHk.
+kHHHHHHHHHHHHk
+kHHHHHHHHHHHHk
+kHHHHHHHHHHHHk
+kHHk......kHHk
+kHHk......kHHk
+kHHk......kHHk
+khhk......khhk
+.kk........kk.
+
+hair spiky
+grid front -1 -3
+..k...k...k...
+.kHk.kHk.kHk..
+.kHHkHHHkHHHk.
+.kHHHHHHHHHHk.
+kHHHHHHHHHHHHk
+kHHHHHHHHHHHHk
+kHHhHHhHHhHHHk
+kHh........hHk
+
+hair curly
+grid front -2 -3
+...kkkkkkkkkk...
+..kHHhHHhHHhHk..
+.kHhHHHHHHHHhHk.
+kHHHHhHHHhHHHHHk
+kHhHHHHHHHHHHhHk
+kHHHHHhHHhHHHHHk
+kHHhHHHHHHHHhHHk
+kHHHk......kHHHk
+.kHk........kHk.
+.kHk........kHk.
+..k..........k..
+
+hair bun
+grid front -1 -4
+.....kkkk.....
+....kHHHHk....
+....kHhHHk....
+..kkkkkkkkkk..
+.kHHHHHHHHHHk.
+kHHHHHHHHHHHHk
+kHHHHHHHHHHHHk
+kHHHhHHHHhHHHk
+kHh........hHk
+
+hair ponytail
+grid back 9 1
+...kk.
+..kHHk
+.kHHHk
+.kHHHk
+..kHHk
+..kHHk
+...kHk
+...kk.
+
+grid front -1 -1
+..kkkkkkkkkk..
+.kHHHHHHHHHHk.
+kHHHHHHHHHHHHk
+kHHHHHHHHHHHHk
+kHHHhHHHHhHHHk
+kHh........hHk
+
+hair mohawk
+grid front 3 -4
+..kkkk..
+.kHHHHk.
+.kHHHHk.
+.kHHHHk.
+.kHHHHk.
+..khhk..
+
+hair buzz
+grid front 0 0
+..kkkkkkkk..
+.khhhhhhhhk.
+khhhhhhhhhhk
+khSSSSSSSShk
+
+hair swoop
+grid front -1 -1
+..kkkkkkkkkk..
+.kHHHHHHHHHHk.
+kHHHHHHHHHHHHk
+kHHHHHHHHHHHHk
+kHHHHHHHHHhhHk
+kHHHHHHk...hHk
+kHHhkk.....kHk
+
+hair bald
+grid front 0 0
+...WW.......
+
+accessory glasses
+A 2B2B33
+grid front 0 4
+.AAAA..AAAA.
+AA..AAAA..AA
+.A..A..A..A.
+.AAAA..AAAA.
+
+accessory roundglasses
+A C9A227
+grid front 1 4
+.AA...AA..
+A..A.A..A.
+A..AAA..A.
+.AA...AA..
+
+accessory sunglasses
+A 15151A
+a 4A5563
+grid front 0 4
+.kkkk..kkkk.
+kkAakkkkAakk
+.kAAk..kAAk.
+..kk....kk..
+
+accessory cap
+A 3F7BD9
+a 2D5BA8
+grid front -1 -3
+...kkkkkkk....
+..kAAAAAAAk...
+.kAAAAAAAAAk..
+.kAAAAAAAAAAkk
+.kaaaaaaaaaaaak
+..kkkkkkkkkkkk.
+
+accessory beanie
+A C8323C
+a 8E2128
+grid front -1 -4
+......kk......
+.....kWWk.....
+...kkkkkkkk...
+..kAAAAAAAAk..
+.kAAAAAAAAAAk.
+kAAAAAAAAAAAAk
+kaaaaaaaaaaaak
+.kkkkkkkkkkkk.
+
+accessory beret
+A 2B2B33
+a 15151A
+grid front 0 -3
+......kk....
+...kkkAAkkk.
+..kAAAAAAAAk
+.kAAAAAAAAAAk
+.kaaaaaaaaak.
+..kkkkkkkkk.
+
+accessory headphones
+A 4D515B
+a 2B2B33
+grid front -1 -2
+...kkkkkkkk...
+..kAAAAAAAAk..
+.kA........Ak.
+kA..........Ak
+kA..........Ak
+kA..........Ak
+kak........kak
+kak........kak
+kak........kak
+.k..........k.
+
+accessory bow
+A E77FB3
+a B85A8A
+grid front 8 -2
+kk...kk
+kAk.kAk
+kAAkAAk
+kak.kak
+kk...kk
+
+accessory flower
+A F4F4F4
+grid front 9 -1
+.k.k.
+kAkAk
+.kYk.
+kAkAk
+.k.k.
+
+accessory headband
+A 5CB85C
+grid front 0 2
+kAAAAAAAAAAk
+
+accessory crown
+A F5C542
+a C99A1E
+grid front 2 -4
+k..k..k.
+AkAAkAkA
+AAAAAAAA
+aaaaaaaa
+
+accessory earring
+A F5C542
+grid front -1 7
+A.
+
+accessory bowtie
+A C8323C
+a 8E2128
+# Two rows on the collar, so the shirt's letter (from row 15) stays clear.
+grid front 3 10
+Aa..aA
+AAkkAA
+
+accessory scarf
+A 2BA6A0
+a 1F7F7A
+grid front 0 9
+.kkkkkkkkkk.
+kAaAaAaAaAak
+.kkkkkkkkAak
+.........kak
+.........kk.
+
+# Shared parts. A standing person: head at 10 3, torso at 9 13, legs at 9 21.
+# A seated one: chair at 8 7, head at 10 4, torso at 9 14, legs at 9 22.
+
+part torso-down
+grid base 0 0
+.kkTTTTTTTTkk.
+kTTTTTTTTTTTTk
+kTTkTTTTTTkTTk
+kTTkTTTTTTkTTk
+kTTkTTTTTTkTTk
+kSSktTTTTtkSSk
+kSSkttttttkSSk
+.kkkPPPPPPkkk.
+
+part torso-front
+grid base 0 0
+.kkTTTTTTTTkk.
+kTTTTTTTTTTTTk
+kTTkTTTTTTkTTk
+kTTkTTTTTTkTTk
+kTTkTTTTTTkTTk
+kTTktTTTTtkTTk
+kTTkttttttkTTk
+.kkkPPPPPPkkk.
+
+part torso-raise-right
+grid base 0 0
+.............kk.
+............kSSk
+............kSSk
+............kTTk
+............kTTk
+............kTTk
+............kTTk
+............kTTk
+.kkTTTTTTTTTTTTk
+kTTTTTTTTTTTTkk.
+kTTkTTTTTTTTk...
+kTTkTTTTTTTTk...
+kTTkTTTTTTTTk...
+kSSktTTTTTTtk...
+kSSkttttttttk...
+.kkkPPPPPPkkk...
+
+part torso-raise-both
+grid base 0 0
+.kk..............kk.
+kSSk............kSSk
+kSSk............kSSk
+kTTk............kTTk
+kTTk............kTTk
+kTTk............kTTk
+kTTk............kTTk
+kTTk............kTTk
+kTTTTTTTTTTTTTTTTTTk
+.kkTTTTTTTTTTTTTTkk.
+...kTTTTTTTTTTTTk...
+...kTTTTTTTTTTTTk...
+...kTTTTTTTTTTTTk...
+...ktTTTTTTTTTTtk...
+...kttttttttttttk...
+...kkkPPPPPPkkk.....
+
+part torso-point-left
+grid base 0 0
+.......kkTTTTTTTTkk.
+kkkkkkkTTTTTTTTTTTTk
+kSSTTTTTTTkTTTTTkTTk
+kSSkkkkkkTkTTTTTkTTk
+.kk.....kTkTTTTTkTTk
+........kTktTTTtkSSk
+........kTkttttkkSSk
+.........kkkPPPPPkkk.
+
+part legs-stand
+grid base 0 0
+...kPPPPPPk...
+...kPPkkPPk...
+...kPPkkPPk...
+...kPPkkPPk...
+..kBBBkkBBBk..
+..kkkk..kkkk..
+
+part legs-sit
+grid base 0 0
+..kPPPPPPPPk..
+..kPPPPPPPPk..
+...kPPkkPPk...
+...kPPkkPPk...
+..kBBBkkBBBk..
+..kkkk..kkkk..
+
+part torso-hands-face
+grid base 0 0
+.kk..............kk.
+kSSk............kSSk
+kSSk............kSSk
+kTTk............kTTk
+kTTk............kTTk
+kTTk............kTTk
+kTTTTTTTTTTTTTTTTTTk
+.kkTTTTTTTTTTTTTTkk.
+...kTTTTTTTTTTTTk...
+...kTTTTTTTTTTTTk...
+...kTTTTTTTTTTTTk...
+...ktTTTTTTTTTTtk...
+...kttttttttttttk...
+...kkkPPPPPPkkk.....
+
+part chair
+grid base 0 0
+.kkkkkkkkkkkkkk.
+kGGGGGGGGGGGGGGk
+kGGGGGGGGGGGGGGk
+kGGGGGGGGGGGGGGk
+kGGGGGGGGGGGGGGk
+kGGGGGGGGGGGGGGk
+kGGGGGGGGGGGGGGk
+kGGGGGGGGGGGGGGk
+kGGGGGGGGGGGGGGk
+kGGGGGGGGGGGGGGk
+kGGGGGGGGGGGGGGk
+kGGGGGGGGGGGGGGk
+kGGGGGGGGGGGGGGk
+kGGGGGGGGGGGGGGk
+kkkkkkkkkkkkkkkk
+kGGGGGGGGGGGGGGk
+kkkkkkkkkkkkkkkk
+.......kk.......
+.......kk.......
+.......kk.......
+..kkkkkkkkkkkk..
+..kGk..kk..kGk..
+...k........k...
+
+part mini
+grid base 0 0
+.kkkkk.
+kHHHHHk
+kSESESk
+kSSSSSk
+.kTTTk.
+kTTTTTk
+kTTTTTk
+.kPkPk.
+.kk.kk.
+
+# Poses, one per thing an agent does.
+
+pose sleep
+head 11 4
+eyes closed
+use chair 8 7
+use torso-down 9 14
+use legs-sit 9 22
+@head
+letter 14 16
+effect zzz 22 0
+
+pose laptop
+head 10 4
+eyes down
+use chair 8 7
+use torso-front 9 14
+use legs-sit 9 22
+@head
+grid over 9 15
+.kkkkkkkkkkkk.
+.kwwwwwwwwwwk.
+.kwwwwwwwwwwk.
+.kwwwwWWwwwwk.
+.kwwwwWWwwwwk.
+.kwwwwwwwwwwk.
+.kwwwwwwwwwwk.
+kSSkggggggkSSk
+.kkkkkkkkkkkk.
+
+pose book
+head 10 4
+eyes down
+use chair 8 7
+use torso-front 9 14
+use legs-sit 9 22
+@head
+grid over 9 16
+.kkkkkkkkkkkk.
+kCCCCCkkCCCCCk
+kRRRRRQQRRRRRk
+kRRRRRQQRRRRRk
+kRRRRRQQRRRRRk
+SRRRRRQQRRRRRS
+kkkkkkkkkkkkkk
+
+pose write
+head 10 4
+eyes down
+use chair 8 7
+use torso-front 9 14
+@head
+grid over 3 15
+..............kkkk...Yk...
+.............kSSSk..kYk...
+.......kkkkkkkSSk..kYk....
+......kCCCCCCCkk..kSSk....
+kkkkkkkkkkkkkkkkkkkkkkkkkk
+kNNNNNNNNNNNNNNNNNNNNNNNNk
+kkkkkkkkkkkkkkkkkkkkkkkkkk
+.knnnnnnnnnnnnnnnnnnnnnnk.
+.knnnnnnnnnnnnnnnnnnnnnnk.
+.knnnnnnnnnnnnnnnnnnnnnnk.
+.knnnnnnnnnnnnnnnnnnnnnnk.
+.knnnnnnnnnnnnnnnnnnnnnnk.
+.knnnnnnnnnnnnnnnnnnnnnnk.
+.kkkkkkkkkkkkkkkkkkkkkkkk.
+
+pose search
+head 10 3
+eyes open
+use torso-raise-right 9 5
+use legs-stand 9 21
+@head
+grid over 20 0
+...kkkkk...
+..kGGGGGk..
+.kGUUUUuGk.
+.kGUWUUuGk.
+.kGUUUUuGk.
+.kGuuuuuGk.
+..kGGGGGk..
+...kkkkkNk.
+.......kNk.
+.......kNk.
+
+letter 14 15
+
+pose fetch
+head 10 3
+eyes open
+use torso-hands-face 7 7
+use legs-stand 9 21
+@head
+grid over 10 7
+.kkkk..kkkk.
+kGUuGkkGUuGk
+kGuUGkkGuUGk
+.kkkk..kkkk.
+
+letter 14 15
+
+pose think
+head 10 3
+eyes up
+use torso-down 9 13
+use legs-stand 9 21
+@head
+letter 14 15
+effect dots 21 0
+
+pose talk
+head 10 3
+eyes open
+use torso-point-left 2 13
+use legs-stand 9 21
+@head
+letter 14 15
+effect speech 22 0
+
+pose ask
+head 10 3
+eyes open
+use torso-raise-right 9 5
+use legs-stand 9 21
+@head
+letter 14 15
+effect question 25 2
+
+pose stop
+head 10 3
+eyes open
+use torso-raise-both 7 5
+use legs-stand 9 21
+@head
+letter 14 15
+effect bang 26 8
+
+pose tablet
+head 10 3
+eyes down
+use torso-front 9 13
+use legs-stand 9 21
+@head
+grid over 10 15
+kkkkkkkkkkkk
+kGGGGGGGGGGk
+kGUUUUUUUUGk
+SGUuUUUUUUGS
+SGUUUUUuUUGS
+kGUUUUUUUUGk
+kGGGGGGGGGGk
+kkkkkkkkkkkk
+
+pose plane
+head 10 3
+eyes open
+use torso-raise-right 9 5
+use legs-stand 9 21
+@head
+letter 14 15
+grid over 24 1
+k.......
+kWk.....
+kWWWk...
+kwWWWWk.
+kwwWk...
+kwk.....
+k.......
+
+pose helper
+head 10 3
+eyes open
+use torso-down 9 13
+use legs-stand 9 21
+use mini 24 18
+@head
+letter 14 15
+
+pose oops
+head 10 3
+eyes open
+use torso-down 9 13
+use legs-stand 9 21
+@head
+letter 14 15
+effect drop 22 4
+
+pose empty
+head none
+use chair 8 7
+
+# Bubbles and signs.
+
+sign zzz
+grid front 0 0
+.....ZZZZ
+.......Z.
+......Z..
+.....ZZZZ
+.........
+ZZZ......
+..Z......
+.Z.......
+ZZZ......
+
+sign dots
+grid front 0 0
+..kkkkkkk..
+.kWWWWWWWk.
+kWWWWWWWWWk
+kWWkWkWkWWk
+kWWWWWWWWWk
+.kWWWWWWWk.
+..kkkkkkk..
+.kWk.......
+..k........
+
+sign speech
+grid front 0 0
+.kkkkkkkk.
+kWWWWWWWWk
+kWggggggWk
+kWWWWWWWWk
+kWggggWWWk
+kWWWWWWWWk
+.kkWkkkkk.
+..kk......
+
+sign question
+grid front 0 0
+.kkkkk.
+kWuuuWk
+kWWWuWk
+kWWuuWk
+kWWWWWk
+kWWuWWk
+.kkkkk.
+
+sign bang
+grid front 0 0
+.kkk.
+kWRWk
+kWRWk
+kWRWk
+kWWWk
+kWRWk
+.kkk.
+
+sign drop
+grid front 0 0
+..k..
+.kUk.
+.kUk.
+kUWUk
+kUUUk
+.kkk.
+
+# The letter on the shirt, 3 x 5.
+
+glyph A
+.#.
+#.#
+###
+#.#
+#.#
+
+glyph B
+##.
+#.#
+##.
+#.#
+##.
+
+glyph C
+.##
+#..
+#..
+#..
+.##
+
+glyph D
+##.
+#.#
+#.#
+#.#
+##.
+
+glyph E
+###
+#..
+##.
+#..
+###
+
+glyph F
+###
+#..
+##.
+#..
+#..
+
+glyph G
+.##
+#..
+#.#
+#.#
+.##
+
+glyph H
+#.#
+#.#
+###
+#.#
+#.#
+
+glyph I
+###
+.#.
+.#.
+.#.
+###
+
+glyph J
+..#
+..#
+..#
+#.#
+.#.
+
+glyph K
+#.#
+#.#
+##.
+#.#
+#.#
+
+glyph L
+#..
+#..
+#..
+#..
+###
+
+glyph M
+#.#
+###
+###
+#.#
+#.#
+
+glyph N
+##.
+#.#
+#.#
+#.#
+#.#
+
+glyph O
+.#.
+#.#
+#.#
+#.#
+.#.
+
+glyph P
+##.
+#.#
+##.
+#..
+#..
+
+glyph Q
+.#.
+#.#
+#.#
+##.
+.##
+
+glyph R
+##.
+#.#
+##.
+#.#
+#.#
+
+glyph S
+.##
+#..
+.#.
+..#
+##.
+
+glyph T
+###
+.#.
+.#.
+.#.
+.#.
+
+glyph U
+#.#
+#.#
+#.#
+#.#
+###
+
+glyph V
+#.#
+#.#
+#.#
+#.#
+.#.
+
+glyph W
+#.#
+#.#
+###
+###
+#.#
+
+glyph X
+#.#
+#.#
+.#.
+#.#
+#.#
+
+glyph Y
+#.#
+#.#
+.#.
+.#.
+.#.
+
+glyph Z
+###
+..#
+.#.
+#..
+###
+
+glyph 0
+###
+#.#
+#.#
+#.#
+###
+
+glyph 1
+.#.
+##.
+.#.
+.#.
+###
+
+glyph 2
+##.
+..#
+.#.
+#..
+###
+
+glyph 3
+##.
+..#
+.#.
+..#
+##.
+
+glyph 4
+#.#
+#.#
+###
+..#
+..#
+
+glyph 5
+###
+#..
+##.
+..#
+##.
+
+glyph 6
+.##
+#..
+###
+#.#
+###
+
+glyph 7
+###
+..#
+.#.
+.#.
+.#.
+
+glyph 8
+###
+#.#
+###
+#.#
+###
+
+glyph 9
+###
+#.#
+###
+..#
+##.
