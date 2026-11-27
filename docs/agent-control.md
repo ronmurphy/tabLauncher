@@ -5,10 +5,10 @@ first such app is DroidACP, which relays for an agent running on another compute
 reads or acts. It decides what is allowed, and it is the last line of defence: whatever arrives, the limits below
 hold.
 
-**Status:** interface version 1 and tool list version 1, agreed 2026-11-25. Built on TabDesk's `agent-control`
-branch, tried on the Android 12 and 16 emulators, not yet on the tablet: the service, approval, Customize → Agent
-with the allowed apps, the indicator, the log, and all of tool list 1 (`apps`, `screen`, `get_item`, `open_app`,
-`usage`). Additions found while building it are marked "(added in building)".
+**Status:** interface version 1 and tool list version 1, agreed 2026-11-25, released in TabDesk 1.4.0 and tried on
+the tablet: the service, approval, Customize → Agent with the allowed apps, the indicator, the log, and all of tool
+list 1 (`apps`, `screen`, `get_item`, `open_app`, `usage`). The agent's Pixel Person on the taskbar, with who it is
+in `tools/call`'s `_meta`, came in 1.5.0. Additions found while building it are marked "(added in building)".
 
 ```
 agent (Claude Code) ⇄ its host on the laptop ⇄ DroidACP on the tablet ⇄ TabDesk ⇄ TabDesk's helper
