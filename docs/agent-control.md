@@ -20,6 +20,13 @@ while the button's uncovered centre still taps), a focusable overlay holding the
 of the app in front just before it touches (`front`), and the rate limit. They're off until the user
 switches on "Let the agent tap and type" in Customize → Agent.
 
+Tool list version 3 (the shared TabDeskAgent folder, plan T13, with PlasmaLLM's P11 and DroidACP's D17) and
+`sendStream` were built on 2026-11-26 and released in TabDesk 1.7.0. They passed end to end on the emulator with
+DroidACP's relay, and on the tablet on 2026-11-27 with PlasmaLLM d8f621d and DroidACP 0.1.94: an 83-byte and a 3 MB
+file there and back with matching `sha256`, a second copy under the same name saved as "name (1)", and an APK
+refused (`apk_not_allowed`). The folder tools are off until the user sets up the folder and switches on "Let the
+agent use the TabDeskAgent folder" in Customize → Agent.
+
 ```
 agent (Claude Code) ⇄ its host on the laptop ⇄ DroidACP on the tablet ⇄ TabDesk ⇄ TabDesk's helper
                        MCP                     MCP over ACP              Binder     (reads the screen, later taps)
@@ -36,14 +43,14 @@ DroidACP passes the MCP messages through without reading their contents. This do
   to `status()` doesn't change it, and neither does adding a call: DroidACP up to 0.1.90 accepts only version 1,
   and TabDesk updates itself, so a new version would break the relay on a tablet whose DroidACP is older. An added
   call is announced in `status()` instead: `"send_stream": true` means `sendStream` is there (from tool list 3,
-  proposed 2026-11-26). A caller uses it only then. (DroidACP's suggestion, 2026-11-26.)
+  TabDesk 1.7.0). A caller uses it only then. (DroidACP's suggestion, 2026-11-26.)
 - **Tool list version** (`status().tools`, and `_meta` in `initialize`):
   - 1: reading (`apps`, `screen`, `get_item`, `open_app`, and `usage`, added 2026-11-25 as plan T14);
   - 2: adds acting (`tap`, `type`, `swipe`, `scroll`, `key`, `wait_for`), and the `paused` state. A tablet with
     version 2 lists all 11 tools whether or not "Let the agent tap and type" is on: with it off, the actions answer
     `acting_off`, so the host's fixed copy never has to change when the user flips the switch.
-  - 3 (proposed 2026-11-26, plan T13): adds the shared folder (`folder_list`, `folder_read`, `folder_write`), for
-    the agent's host only, never shown to the agent. See [tool list 3](#tool-list-version-3-the-shared-folder-proposed).
+  - 3 (TabDesk 1.7.0, plan T13): adds the shared folder (`folder_list`, `folder_read`, `folder_write`), for
+    the agent's host only, never shown to the agent. See [tool list 3](#tool-list-version-3-the-shared-folder).
 
   The agent's host keeps a copy of the list for the version it supports, because the agent's tools are fixed when a
   chat starts. A tablet with an older version answers tools it doesn't have with a JSON-RPC error.
@@ -211,7 +218,7 @@ TabDesk watches the callback, and if the caller's process dies, its running requ
 - `tools/call` requests from one caller run one at a time, in order. `initialize`, `ping` and `tools/list` are
   answered at once.
 
-### `sendStream(id, pipe)` (when `status()` has `"send_stream": true`, proposed 2026-11-26)
+### `sendStream(id, pipe)` (when `status()` has `"send_stream": true`, from TabDesk 1.7.0)
 
 For `folder_write`'s chunks, which are bigger than `send` takes. It mirrors `replyStream`:
 - **The caller** writes one MCP JSON-RPC message into the pipe as UTF-8, at most 2 MiB, then closes its end. It
@@ -848,9 +855,9 @@ screen again to see what happened: the answer says only that the action was done
 - **Gone:** "Gone: nothing on screen matches it now."
 - **Time out:** the `not_found` error, "Not on screen after 5.0 s." or "Still on screen after 5.0 s."
 
-## Tool list version 3: the shared folder (proposed)
+## Tool list version 3: the shared folder
 
-Proposed 2026-11-26 for plan T13 (with PlasmaLLM's P11 and DroidACP's D17), in the shape all three apps and the user
+Built 2026-11-26 for plan T13 (with PlasmaLLM's P11 and DroidACP's D17), released in 1.7.0, in the shape all three apps and the user
 agreed on 2026-11-25. These three tools are **for the agent's host, never for the agent**:
 - PlasmaLLM's own `get_file` and `put_file` call them, chunk by chunk. They carry `"dev.tabdesk/host_only": true` in
   their `_meta` in `tools/list`, and the host never shows them to the agent.
@@ -1040,7 +1047,7 @@ the code review, 2026-11-26.)
 8. For actions (tool list 2): the window under the point, the focus, and password fields, as
    [tool list 2](#tool-list-version-2-acting) says. Before 6 and 7, an action checks that "Let the agent tap and
    type" is on (`acting_off`); `wait_for` doesn't, since it only reads.
-9. For the shared folder (tool list 3, proposed): after 4, the folder's switch is on (`folder_off`) and TabDesk
+9. For the shared folder (tool list 3): after 4, the folder's switch is on (`folder_off`) and TabDesk
    still holds the folder's grant (`folder_not_set`). File calls skip 5 to 8: they don't need the helper, and don't
    look at the screen or the app in front.
 

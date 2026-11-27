@@ -110,8 +110,8 @@ the tablet is rotated:
 - **Agent**: letting an app such as DroidACP give an AI agent use of the tablet: the master switch (off
   by default), the apps that asked and the approved ones (each approval lasts a week; Keep allowing
   renews it, Revoke takes it back), the apps the agent may read and open (none until you switch them
-  on), whether it may see the names of running apps, wake the screen, or tap and type, the tablet's
-  name, and a log of the recent calls. See [Agent control](#agent-control)
+  on), whether it may see the names of running apps, wake the screen, or tap and type, the shared
+  TabDeskAgent folder, the tablet's name, and a log of the recent calls. See [Agent control](#agent-control)
 - **Backup**: export, import, undo import
 
 Start shows a "Recently added" section for apps installed in the last 14 days.
@@ -303,6 +303,9 @@ adb shell cmd package set-home-activity com.zui.launcher/.drawer.DrawerLauncher
   locators (an item by its id or by what it says)
 - `ActTools.kt`: tool list 2, `tap`, `type`, `swipe`, `scroll`, `key` and `wait_for`: their arguments, the
   "Let the agent tap and type" switch, and what the helper's answer means for the agent
+- `SharedFolder.kt`: tool list 3, the shared TabDeskAgent folder: setting it up through Android's folder
+  picker, listing it, reading and writing files in chunks (a hidden part file renamed when it's whole, never
+  replacing a file), and removing unfinished copies
 - `Never.kt`: the apps the agent can never read or use, worked out on the tablet
 - `AgentLog.kt`: the last 500 calls, without what was read
 - `AgentPerson.kt`: the agent as its Pixel Person on the taskbar: who it says it is (each call's `_meta`,
@@ -408,6 +411,13 @@ is kept outside the repo.
   checks again, just before it happens, that the allowed app is still in front and that the spot isn't
   under another window (DroidACP's chat, a notification, the keyboard), and never types into a password
   field. Text goes straight into the field, not through the keyboard, so the keyboard never learns it.
+- **The shared folder** (from 1.7.0), only once you set it up and switch it on: Customize → Agent →
+  Shared folder → **Set up** makes Download/TabDeskAgent and asks Android to let TabDesk use it (tap "Use
+  this folder", then Allow); then switch on "Let the agent use the TabDeskAgent folder". The agent's app
+  can then list the files there, copy them to the computer the agent runs on, and put new files there,
+  up to 50 MB each. Nothing outside that folder. It never deletes or replaces a file (a new one with a
+  name that's taken gets "(1)"), never puts apps (APK files) there, and never opens what it puts there.
+  Each file copied is logged once, and a copy left unfinished is removed.
 - **Touch the screen to pause it:** while the agent is using an allowed app, a touch of yours pauses
   it, like Stop, until your next chat message or Continue. The agent's own taps don't count, since
   they don't come from the touchscreen.
@@ -424,14 +434,14 @@ is kept outside the repo.
   meanwhile, and can't stop or resume it.
 - **The agent itself** stands beside that on the taskbar as its Pixel Person, the small person
   DroidACP draws for each agent, posed by what it's doing: holding a tablet while it reads the screen,
-  opens an app or taps, a magnifying glass for one item or while it waits, a book for the app list and `usage`, thinking
+  opens an app or taps, a magnifying glass for one item or while it waits, a book for the app list, `usage` and the shared folder, thinking
   between calls, a sweat drop after a refusal, and hands up when stopped. Its look and name come from
   the agent's host with each call; without them it's a default person for the approved app. The
   approved app's own name always stays on the pill.
 - **Every call is logged** (the last 500, in Customize → Agent): when, which app, what it asked for,
   the outcome, and which of the switches above were on, never what was read.
 - **A new signature turns the switches off:** if an approved app comes back signed differently, it's a
-  different app, so "tap and type", "wake the screen" and "see which apps are running" go off. Its row
+  different app, so "tap and type", "wake the screen", "see which apps are running" and the shared folder go off. Its row
   says which were on, so setting them again is quick.
 
 ## Floating windows
