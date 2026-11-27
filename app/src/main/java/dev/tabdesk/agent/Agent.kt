@@ -29,7 +29,11 @@ import java.util.concurrent.CopyOnWriteArrayList
  * tablet changes it, in Customize → Agent: the agent can never read or use TabDesk's own screens.
  */
 object Agent {
-    const val INTERFACE = 2
+    /**
+     * 1, and it stays 1 while calls are only added: DroidACP up to 0.1.90 refuses any other version. An added call is
+     * announced in status() instead (send_stream).
+     */
+    const val INTERFACE = 1
     const val TOOLS = 3
     const val ACTION_SETTINGS = "dev.tabdesk.action.AGENT_SETTINGS"
     const val LAPSE_MS = 7L * 24 * 60 * 60 * 1000

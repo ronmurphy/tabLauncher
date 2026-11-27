@@ -222,6 +222,7 @@ class AgentService : Service() {
         val o = JSONObject()
             .put("interface", Agent.INTERFACE)
             .put("tools", Agent.TOOLS)
+            .put("send_stream", true)   // sendStream (= 8) is there: an added call, so the interface version stays 1
             .put("tabdesk", BuildInfo.version(this))
             .put("enabled", Agent.enabled)
             .put("approval", approval)

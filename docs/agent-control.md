@@ -32,9 +32,11 @@ DroidACP passes the MCP messages through without reading their contents. This do
 
 ## Versions
 
-- **Interface version** (`version()`): 1, or 2 from tool list 3 (proposed 2026-11-26), which adds `sendStream`. It
-  changes only when a call or a callback changes meaning, or a call is added. Adding a field to `status()` doesn't
-  change it. A caller uses `sendStream` only when `version()` is 2 or more.
+- **Interface version** (`version()`): 1. It changes only when a call or a callback changes meaning. Adding a field
+  to `status()` doesn't change it, and neither does adding a call: DroidACP up to 0.1.90 accepts only version 1,
+  and TabDesk updates itself, so a new version would break the relay on a tablet whose DroidACP is older. An added
+  call is announced in `status()` instead: `"send_stream": true` means `sendStream` is there (from tool list 3,
+  proposed 2026-11-26). A caller uses it only then. (DroidACP's suggestion, 2026-11-26.)
 - **Tool list version** (`status().tools`, and `_meta` in `initialize`):
   - 1: reading (`apps`, `screen`, `get_item`, `open_app`, and `usage`, added 2026-11-25 as plan T14);
   - 2: adds acting (`tap`, `type`, `swipe`, `scroll`, `key`, `wait_for`), and the `paused` state. A tablet with
@@ -82,7 +84,7 @@ package dev.tabdesk.agent;
 import dev.tabdesk.agent.IAgentCallback;
 
 interface IAgentService {
-    /** The interface version: 2 (1 had no sendStream). */
+    /** The interface version: 1. Calls added since (sendStream) are announced in status(). */
     int version() = 1;
 
     /** TabDesk's state for this caller, as JSON (see status()). No side effects. */
@@ -104,7 +106,7 @@ interface IAgentService {
     oneway void resume() = 7;
 
     /**
-     * (Interface version 2.) Like send(), for a message over 32 Ki characters: write it into the pipe as UTF-8, at
+     * (When status() has "send_stream": true.) Like send(), for a message over 32 Ki characters: write it into the pipe as UTF-8, at
      * most 2 MiB, then close it. A stream that's cancelled or stalls gets no answer.
      */
     oneway void sendStream(String id, in ParcelFileDescriptor pipe) = 8;
@@ -140,8 +142,9 @@ with a button. It changes nothing. It answers JSON:
 ```json
 {
   "interface": 1,
-  "tools": 2,
-  "tabdesk": "1.6.0",
+  "tools": 3,
+  "send_stream": true,
+  "tabdesk": "1.7.0",
   "enabled": true,
   "approval": "approved",
   "lapses": "2026-12-02T00:17:00Z",
@@ -153,6 +156,7 @@ with a button. It changes nothing. It answers JSON:
 
 | Field | Values |
 |---|---|
+| `send_stream` | `true` when TabDesk takes `sendStream` (tool list 3 on); missing from older TabDesks |
 | `enabled` | the master switch in Customize → Agent, "Let apps use this tablet" (off by default) |
 | `approval` | for this caller: `none`, `asked` (it has asked and the user hasn't answered), `approved`, `lapsed` (the week ran out), `certificate_changed` (this copy isn't signed like the one the user approved) |
 | `lapses` | when the approval runs out, if approved |
@@ -207,7 +211,7 @@ TabDesk watches the callback, and if the caller's process dies, its running requ
 - `tools/call` requests from one caller run one at a time, in order. `initialize`, `ping` and `tools/list` are
   answered at once.
 
-### `sendStream(id, pipe)` (interface version 2, proposed 2026-11-26)
+### `sendStream(id, pipe)` (when `status()` has `"send_stream": true`, proposed 2026-11-26)
 
 For `folder_write`'s chunks, which are bigger than `send` takes. It mirrors `replyStream`:
 - **The caller** writes one MCP JSON-RPC message into the pipe as UTF-8, at most 2 MiB, then closes its end. It
