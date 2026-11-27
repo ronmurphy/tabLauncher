@@ -54,7 +54,14 @@ object Customize {
         card.layoutParams.height = act.dp(580)
 
         val body = linear(act, true) { setPadding(act.dp(if (wide) 10 else 2), act.dp(4), act.dp(6), act.dp(18)) }
-        val scroll = ScrollView(act).apply { isVerticalScrollBarEnabled = false; addView(body) }
+        // Where the last touch landed, in the page's own coordinates: the row there is the one to keep in place.
+        var touchedY = -1
+        val scroll = object : ScrollView(act) {
+            override fun dispatchTouchEvent(ev: android.view.MotionEvent): Boolean {
+                if (ev.actionMasked == android.view.MotionEvent.ACTION_DOWN) touchedY = ev.y.toInt() + scrollY
+                return super.dispatchTouchEvent(ev)
+            }
+        }.apply { isVerticalScrollBarEnabled = false; addView(body) }
         val tabViews = ArrayList<View>()
         val footer = "TabDesk ${BuildInfo.version(act)} · long-press or right-click Start to open this panel"
 
@@ -68,14 +75,77 @@ object Customize {
             v.background = if (on) rounded(pal.accentSoft, act.dpf(if (wide) 12 else 16)) else rippleBg(pal.ripple, act.dpf(if (wide) 12 else 16))
         }
 
-        fun select(i: Int, scrollTo: Int) {
+        /**
+         * Each row's name, for finding the same row again in the rebuilt page: its first words (a switch's label, a
+         * heading, a note), numbered when the same words come more than once. Null for a row without words.
+         */
+        fun rowNames(): List<String?> {
+            fun words(v: View): String? = when {
+                v is android.widget.EditText -> null
+                v is TextView -> v.text?.toString()?.takeIf { it.isNotBlank() }
+                v is android.view.ViewGroup -> (0 until v.childCount).firstNotNullOfOrNull { words(v.getChildAt(it)) }
+                else -> null
+            }
+            val seen = HashMap<String, Int>()
+            return (0 until body.childCount).map { k ->
+                words(body.getChildAt(k))?.let { w -> val n = seen.merge(w, 1, Int::plus)!!; "$n $w" }
+            }
+        }
+
+        /**
+         * Builds tab [i]. [keepPlace]: it's the open tab rebuilt in place (a switch flipped, a folder picked), so the
+         * row the user last touched stays where it is on screen, even when something above it grew or shrank: a note
+         * that lists the switches that are on, or the list of apps, which may have been only partly loaded when the
+         * page was first built (just after TabDesk was installed or updated). If that touch is out of view now, the
+         * first row that starts inside the panel stays instead. The row is found again by its words, since rows above it
+         * may have come or gone (the apps list gets a search box once it has more than 8 apps), or else by the nearest
+         * row above it that has the same words as before (its own may have changed: "Not set up yet" became the
+         * folder's name). Otherwise it scrolls to [scrollTo].
+         */
+        fun select(i: Int, scrollTo: Int, keepPlace: Boolean = false) {
+            var anchor = -1
+            var offset = 0
+            if (keepPlace && i == lastTab && body.isLaidOut) {
+                val y = scroll.scrollY
+                val bottom = y + scroll.height
+                if (touchedY in y until bottom) for (k in 0 until body.childCount) {
+                    val c = body.getChildAt(k)
+                    if (touchedY >= c.top && touchedY < c.bottom) { anchor = k; offset = y - c.top; break }
+                }
+                if (anchor < 0) for (k in 0 until body.childCount) {
+                    val c = body.getChildAt(k)
+                    if (c.top >= y && c.top < bottom) { anchor = k; offset = y - c.top; break }
+                }
+                if (anchor < 0) for (k in 0 until body.childCount) {
+                    val c = body.getChildAt(k)
+                    if (c.bottom > y) { anchor = k; offset = y - c.top; break }
+                }
+            }
+            val before = if (anchor >= 0) rowNames() else emptyList()
+            if (i != lastTab) touchedY = -1
             lastTab = i
             body.removeAllViews()
             TABS[i].build(Page(act, body))
+            if (anchor >= 0) {
+                val after = rowNames()
+                anchor = (anchor downTo 0).firstNotNullOfOrNull { k ->
+                    before[k]?.let { after.indexOf(it) }?.takeIf { it >= 0 }?.let { it + anchor - k }
+                } ?: anchor
+            }
             if (!wide && i == TABS.lastIndex) body.addView(TextView(act).label(pal.textDim, 11.5f).apply {
                 text = footer; gravity = Gravity.CENTER; setPadding(0, act.dp(22), 0, 0)
             }, llp(MATCH, WRAP))
             tabViews.forEachIndexed { j, v -> style(v, j) }
+            if (anchor in 0 until body.childCount) {
+                // Once the new rows are laid out: the same row at the same place in the panel as before.
+                body.addOnLayoutChangeListener(object : View.OnLayoutChangeListener {
+                    override fun onLayoutChange(v: View, l: Int, t: Int, r: Int, b: Int, ol: Int, ot: Int, or: Int, ob: Int) {
+                        v.removeOnLayoutChangeListener(this)
+                        if (anchor < body.childCount) scroll.scrollTo(0, body.getChildAt(anchor).top + offset)
+                    }
+                })
+                return
+            }
             scroll.scrollTo(0, 0)
             if (scrollTo > 0) scroll.post { scroll.scrollTo(0, scrollTo) }
         }
@@ -123,7 +193,7 @@ object Customize {
         }
 
         select(lastTab, if (restoreScroll) lastScroll else 0)
-        reselect = { select(lastTab, lastScroll) }
+        reselect = { select(lastTab, lastScroll, keepPlace = true) }
         layer = act.overlays.show(card, dim = true)
     }
 
