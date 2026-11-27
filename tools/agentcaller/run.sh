@@ -10,6 +10,10 @@
 #   tools/agentcaller/run.sh burst 6
 #   tools/agentcaller/run.sh pw               shows a password field holding "hunter2" (screen reader tests)
 #   tools/agentcaller/run.sh over             pw, with tools/seethrough's see-through card over it in the same task
+#   tools/agentcaller/run.sh heads            a heads-up notification over the top of the screen (plan T12)
+#   tools/agentcaller/run.sh overlay          a small window with a text field over every app, which takes the
+#                                             keyboard's focus (overlay-off removes it); grant both first, see
+#                                             MainActivity.kt
 #   tools/agentcaller/run.sh log              what it has logged so far
 # Usage: [SERIAL=emulator-5554] [TWO=1] tools/agentcaller/run.sh <command> [args]
 # TWO=1: the second caller (build it with "TWO=1 run.sh build"), to test two approved apps. It logs as AgentCaller2.

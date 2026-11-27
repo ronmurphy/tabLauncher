@@ -85,7 +85,8 @@ internal object ActTools {
             quoted = quotes(t.item)
         }
         val r = act(ctx, task, req, deadline) ?: return ScreenTools.noAnswer() to name
-        failure(ctx, task, r)?.let { return it to name }
+        failure(ctx, task, r, if (into != null) "It stayed there after the field was tapped, so nothing was typed: ask " +
+            "the user to close that window." else "Tap the field first (type with a target).")?.let { return it to name }
         val hint = r.optString("field").takeIf { it.isNotEmpty() && it != "null" }
         if (into == null && hint != null) quoted = true
         val field = into ?: hint?.let { "\"${ScreenTools.cut(it)}\"" } ?: "the focused field"
@@ -162,7 +163,8 @@ internal object ActTools {
         if (task == null) return refusal
         val name = Agent.label(task.top)
         val r = act(ctx, task, JSONObject().put("op", "key").put("key", key), deadline) ?: return ScreenTools.noAnswer() to name
-        failure(ctx, task, r)?.let { return it to name }
+        failure(ctx, task, r, "${key!!.replaceFirstChar { it.uppercase() }} would go there, so it wasn't pressed: ask the " +
+            "user to close that window.")?.let { return it to name }
         if (key == "home") return Tools.ok(Tools.text("Pressed Home: TabDesk's home screen is in front now, which the agent " +
             "can't read. Open an allowed app with open_app.")) to name
         return done(ctx, task, "Pressed ${key!!.replaceFirstChar { it.uppercase() }}.") to name
@@ -209,8 +211,12 @@ internal object ActTools {
     private fun act(ctx: Context, task: HelperClient.Task, req: JSONObject, deadline: Long): JSONObject? =
         HelperClient.act(req.put("pkg", task.top).put("task", task.id), deadline)
 
-    /** What the helper's "ok": false means for the agent; null when it acted. */
-    private fun failure(ctx: Context, task: HelperClient.Task, r: JSONObject): JSONObject? {
+    /**
+     * What the helper's "ok": false means for the agent; null when it acted. [focusAdvice]: what the agent can do
+     * when another app's window has the keyboard's focus, which depends on the action.
+     */
+    private fun failure(ctx: Context, task: HelperClient.Task, r: JSONObject,
+                        focusAdvice: String = "Tap the field first (type with a target)."): JSONObject? {
         if (r.optBoolean("ok")) return null
         val app = Agent.label(task.top)
         val by = r.optJSONObject("by")
@@ -218,7 +224,7 @@ internal object ActTools {
             "covered" -> Tools.refused("covered", "Covered by ${ScreenTools.windowName(ctx, by, screenSize(ctx))}: a finger there " +
                 "would touch that, not $app. Ask the user to move it, or act on another item.")
             "focus" -> if (by != null) Tools.refused("focus", "The keyboard's focus is in ${ScreenTools.windowName(ctx, by, screenSize(ctx))}, " +
-                "not $app. Tap the field first (type with a target).")
+                "not $app. $focusAdvice")
                 else Tools.error("focus", "No field in $app has the keyboard's focus: give type a target to tap first.")
             "password" -> Tools.refused("password_field", "That's a password field: the agent never types into one.")
             "not_editable" -> Tools.error("not_editable", "The focused item in $app isn't a text field.")

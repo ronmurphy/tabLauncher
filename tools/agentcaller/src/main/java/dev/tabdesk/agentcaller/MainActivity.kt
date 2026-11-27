@@ -29,7 +29,11 @@ import kotlin.concurrent.thread
  * "meta64", the call's `_meta` as base64 JSON),
  * raw (extra "json" or "b64"), cancel (extra "id"), stop, resume, burst (extra "n": that many usage calls at once),
  * die (the process exits, as if it crashed), pw (shows a password field holding "hunter2", for the screen reader's tests),
- * over (pw, then tools/seethrough's see-through card over it in this task).
+ * over (pw, then tools/seethrough's see-through card over it in this task), heads (a heads-up notification, to cover
+ * the top of the screen), overlay / overlay-off (a small window over every app with a text field that takes the
+ * keyboard's focus, like a chat bubble, so the focus is in another app's window). heads and overlay are for plan
+ * T12; on the emulator, grant them first: pm grant dev.tabdesk.agentcaller android.permission.POST_NOTIFICATIONS,
+ * and appops set dev.tabdesk.agentcaller SYSTEM_ALERT_WINDOW allow.
  */
 class MainActivity : Activity() {
     private lateinit var out: TextView
@@ -110,6 +114,44 @@ object Caller {
 
     private fun id() = "c1:${++next}"
 
+    private val main = android.os.Handler(android.os.Looper.getMainLooper())
+
+    /** A heads-up: a notification on a channel of high importance, which Android shows over the top of the screen. */
+    private fun heads() {
+        val nm = app.getSystemService(android.app.NotificationManager::class.java)
+        nm.createNotificationChannel(android.app.NotificationChannel("heads", "Heads-up test", android.app.NotificationManager.IMPORTANCE_HIGH))
+        nm.notify(1, android.app.Notification.Builder(app, "heads")
+            .setSmallIcon(android.R.drawable.stat_notify_chat)
+            .setContentTitle("Heads-up test").setContentText("Covers the top of the screen for a few seconds.")
+            .setCategory(android.app.Notification.CATEGORY_MESSAGE)
+            .build())
+        log("HEADS posted")
+    }
+
+    private var bubble: android.view.View? = null
+
+    /**
+     * A small window over every app (TYPE_APPLICATION_OVERLAY) with a text field. It's focusable, so it takes the
+     * keyboard's focus as it's added, while the app under it stays the one in front: "the focus in another app's
+     * window" (plan T12). Touches outside it go through to the app under it.
+     */
+    private fun overlay(on: Boolean) {
+        val wm = app.getSystemService(android.view.WindowManager::class.java)
+        bubble?.let { try { wm.removeView(it) } catch (_: Exception) {} }
+        bubble = null
+        if (!on) return log("OVERLAY off")
+        val field = android.widget.EditText(app).apply {
+            hint = "Bubble chat"; setBackgroundColor(0xFFFFF59D.toInt()); setPadding(24, 24, 24, 24)
+        }
+        val lp = android.view.WindowManager.LayoutParams(600, android.view.ViewGroup.LayoutParams.WRAP_CONTENT,
+            android.view.WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY,
+            android.view.WindowManager.LayoutParams.FLAG_NOT_TOUCH_MODAL, android.graphics.PixelFormat.TRANSLUCENT).apply {
+            gravity = android.view.Gravity.BOTTOM or android.view.Gravity.END; x = 40; y = 160; title = "Bubble"
+        }
+        try { wm.addView(field, lp); bubble = field; field.requestFocus(); log("OVERLAY on") }
+        catch (e: Exception) { log("ERROR overlay: $e") }
+    }
+
     private fun send(json: JSONObject) {
         val s = service ?: return log("ERROR not bound")
         val id = id()
@@ -178,6 +220,9 @@ object Caller {
                 send(request("tools/call", JSONObject().put("name", "apps").put("arguments", JSONObject())))
             }
             "die" -> { log("DYING"); Runtime.getRuntime().halt(1) }
+            "heads" -> heads()
+            "overlay" -> main.post { overlay(true) }
+            "overlay-off" -> main.post { overlay(false) }
             else -> log("ERROR unknown command $cmd")
         }
     }

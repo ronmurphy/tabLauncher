@@ -103,6 +103,11 @@ tools/agentcaller/run.sh call type '{"target":{"content_contains":"Name"},"text"
 tools/agentcaller/run.sh call scroll '{"direction":"down","amount":"half"}'
 tools/agentcaller/run.sh call wait_for '{"target":{"content_contains":"Rolled"},"timeout_ms":3000}'
 tools/agentcaller/run.sh resume                   # after a real touch paused it (or Stop)
+tools/agentcaller/run.sh heads                    # a heads-up notification, to cover the top of the screen
+tools/agentcaller/run.sh overlay                  # a small window with a text field that takes the keyboard's
+tools/agentcaller/run.sh overlay-off              #   focus, like a chat bubble (emulator only: first
+                                                  #   pm grant dev.tabdesk.agentcaller android.permission.POST_NOTIFICATIONS
+                                                  #   and appops set dev.tabdesk.agentcaller SYSTEM_ALERT_WINDOW allow)
 tools/agentcaller/run.sh pw                       # a password field holding "hunter2", to check it's never read
 tools/agentcaller/run.sh over                     # pw, with seethrough/'s see-through card over it in the same task
 META='{"dev.tabdesk/agent":{"name":"tabLauncher","agent":"claude","person":{"hair":"swoop","haircolor":"teal"}}}' \

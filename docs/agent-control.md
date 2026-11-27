@@ -13,7 +13,11 @@ in `tools/call`'s `_meta`, came in 1.5.0. Additions found while building it are 
 Tool list version 2 (acting: `tap`, `type`, `swipe`, `scroll`, `key`, `wait_for`, plan T10) and the pause when the
 user touches the screen (T11) were built on 2026-11-26 and released in TabDesk 1.6.0. They were tried on the tablet
 with PlasmaLLM 17bb125 and DroidACP 0.1.88 in D&D Beyond: taps by item and by point, typing and Enter, `wait_for`,
-scrolling, the pause on a real touch, and the `not_allowed` and `covered` refusals. They're off until the user
+scrolling, the pause on a real touch, and the `not_allowed` and `covered` refusals. The rest of plan T12 passed on
+the emulator on 2026-11-26: a heads-up notification covering part of a button (`covered` by "a notification" there,
+while the button's uncovered centre still taps), a focusable overlay holding the keyboard's focus (`focus` for
+`type`, `key back`, and `type` with a target), a tap by id after the app changed (`stale`), the helper's own check
+of the app in front just before it touches (`front`), and the rate limit. They're off until the user
 switches on "Let the agent tap and type" in Customize → Agent.
 
 ```
@@ -432,7 +436,7 @@ In the table, `<app>` follows that rule.
 | `never_allowed` | `<screen>` can never be read or used by the agent. Open an allowed app with open_app. |
 | `acting_off` | (tool list 2) Tapping and typing is switched off on the tablet (TabDesk → Customize → Agent → "Let the agent tap and type"). The agent can still read the screen. |
 | `covered` | (tool list 2) Covered by `<window>`: a finger there would touch that, not `<app>`. Ask the user to move it, or act on another item. `<window>` is e.g. "DroidACP's window", "a notification", "the keyboard", "another app's window". |
-| `focus` | (tool list 2) The keyboard's focus is in `<window>`, not `<app>`. Tap the field first (type with a target). |
+| `focus` | (tool list 2) The keyboard's focus is in `<window>`, not `<app>`, then what to do: for `type` without a target, "Tap the field first (type with a target)."; for `type` with one, "It stayed there after the field was tapped, so nothing was typed: ask the user to close that window."; for `key`, "Back (or Enter) would go there, so it wasn't pressed: ask the user to close that window." A focusable overlay, such as a chat bubble, keeps the focus even when the app under it is tapped. |
 | `password_field` | That's a password field: the agent never types into one. |
 | `rate_limited` | Too many calls: wait a second. |
 | `timed_out` | The tablet didn't answer in time. |
