@@ -4,7 +4,7 @@ package dev.tabdesk.agent;
 import dev.tabdesk.agent.IAgentCallback;
 
 interface IAgentService {
-    /** The interface version: 1. */
+    /** The interface version: 2 (1 had no sendStream). */
     int version() = 1;
 
     /** TabDesk's state for this caller, as JSON (see status()). No side effects. */
@@ -24,4 +24,10 @@ interface IAgentService {
 
     /** The user sent the next message in the chat: control may go on after a Stop or a pause. */
     oneway void resume() = 7;
+
+    /**
+     * (Interface version 2.) Like send(), for a message over 32 Ki characters: write it into the pipe as UTF-8, at
+     * most 2 MiB, then close it. A stream that's cancelled or stalls gets no answer.
+     */
+    oneway void sendStream(String id, in ParcelFileDescriptor pipe) = 8;
 }

@@ -14,6 +14,11 @@
 #   tools/agentcaller/run.sh overlay          a small window with a text field over every app, which takes the
 #                                             keyboard's focus (overlay-off removes it); grant both first, see
 #                                             MainActivity.kt
+#   tools/agentcaller/run.sh put NAME SIZE [CHUNK] [STOPAFTER]
+#                                             puts made-up bytes in the shared folder through folder_write (plan T13)
+#   tools/agentcaller/run.sh get NAME         reads a file from the shared folder back, and logs its SHA-256
+#   tools/agentcaller/run.sh streamping | streamhalf | streamstall | streambig
+#                                             sendStream: whole, half then closed, half then 13 s, 2.5 MiB
 #   tools/agentcaller/run.sh log              what it has logged so far
 # Usage: [SERIAL=emulator-5554] [TWO=1] tools/agentcaller/run.sh <command> [args]
 # TWO=1: the second caller (build it with "TWO=1 run.sh build"), to test two approved apps. It logs as AgentCaller2.
@@ -45,5 +50,7 @@ case "$1" in
   pw) FRONT=1 start --es cmd pw ;;
   over) FRONT=1 start --es cmd over ;;
   raw) start --es cmd raw --es b64 "$(printf '%s' "$2" | base64 -w0)" ;;
+  put) start --es cmd put --es name "$2" --es size "$3" ${4:+--es chunk "$4"} ${5:+--es stopafter "$5"} ;;
+  get) start --es cmd get --es name "$2" ;;
   *) start --es cmd "$1" ;;
 esac

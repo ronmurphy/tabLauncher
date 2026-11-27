@@ -24,4 +24,7 @@ interface IAgentService {
 
     /** The user sent the next message in the chat: control may go on after a Stop or a pause. */
     oneway void resume() = 7;
+
+    /** (Interface version 2.) Like send(), for a message over 32 Ki characters, written into the pipe as UTF-8. */
+    oneway void sendStream(String id, in ParcelFileDescriptor pipe) = 8;
 }

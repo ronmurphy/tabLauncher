@@ -32,8 +32,14 @@ class AgentService : Service() {
     companion object {
         private const val TAG = "TabDeskAgent"
         const val MAX_CHARS = 32 * 1024
+        /** sendStream's cap, in bytes: a folder_write chunk (1 MiB as base64) and its JSON fit well inside it. */
+        private const val MAX_STREAM = 2 * 1024 * 1024
+        /** At most this many of one caller's sendStream messages being read at once; more are dropped. */
+        private const val MAX_STREAMS = 2
         private const val MAX_ID = 200
         private const val RATE_PER_SECOND = 4
+        /** File calls (tool list 3) have their own limit, so a transfer's chunks can go back to back. */
+        private const val FILE_RATE_PER_SECOND = 20
         private const val STREAM_STALL_MS = 10_000L
         /** How long a call waits for the helper to connect before answering helper_not_running. */
         private const val HELPER_WAIT_MS = 2_000L
@@ -53,8 +59,11 @@ class AgentService : Service() {
         }
     }
 
-    /** One request on its way. A cancelled one never gets an answer. */
-    private class Call(val id: String, val mcpId: Any?) {
+    /**
+     * One request on its way. A cancelled one never gets an answer. Cancelling a folder_write chunk ([uploadOf], the
+     * caller's package) removes the caller's unfinished upload.
+     */
+    private class Call(val id: String, val mcpId: Any?, val uploadOf: String? = null) {
         @Volatile var cancelled = false
         @Volatile var future: Future<*>? = null
         @Volatile var pipe: ParcelFileDescriptor? = null
@@ -62,6 +71,7 @@ class AgentService : Service() {
             cancelled = true
             future?.cancel(true)
             try { pipe?.close() } catch (_: Exception) {}
+            uploadOf?.let { SharedFolder.drop(it) }
         }
     }
 
@@ -69,7 +79,10 @@ class AgentService : Service() {
     private inner class Caller(val uid: Int, val pkg: String, @Volatile var cert: String?, @Volatile var callback: IAgentCallback) {
         val exec: ExecutorService = Executors.newSingleThreadExecutor { r -> Thread(r, "agent-$pkg") }
         val running = ConcurrentHashMap<String, Call>()
+        /** sendStream messages still being read, by id: cancelling one closes its pipe, and it's dropped. */
+        val reading = ConcurrentHashMap<String, ParcelFileDescriptor>()
         val recent = ArrayDeque<Long>()
+        val recentFiles = ArrayDeque<Long>()
         /** When each refusal by the checks last went in the log, by its code. Only the caller's own thread uses it. */
         val logged = HashMap<String, Long>()
         var lastState = ""
@@ -86,14 +99,26 @@ class AgentService : Service() {
         // UiAutomation counts as an accessibility service while the helper reads: let go of it once control isn't active.
         if (Agent.control != Agent.ACTIVE) HelperClient.stopReading()
         // A real touch pauses the agent, so the helper watches for one only while an app is using the tablet.
-        HelperClient.watchTouches(Agent.control == Agent.ACTIVE)
+        watchTouches()
+        // An upload stops when control is stopped or paused, or the caller can't use the tablet any more.
+        for (c in callers.values) if (Agent.stateFor(c.pkg, c.cert).first.let { it == Agent.STOPPED || it == Agent.REVOKED ||
+                it == Agent.PAUSED }) SharedFolder.drop(c.pkg)
     }
+
+    /**
+     * Whether the last call was a file call (tool list 3): then a touch doesn't pause, so the user can keep using the
+     * tablet while a file goes to or from the shared folder.
+     */
+    @Volatile private var fileCalls = false
+
+    private fun watchTouches() = HelperClient.watchTouches(Agent.control == Agent.ACTIVE && !fileCalls)
 
     override fun onCreate() {
         super.onCreate()
         Prefs.init(this)
         Agent.init(this)
         AgentLog.init(this)
+        SharedFolder.init(this)
         instance = this
         Agent.stateListeners += onState
         HelperClient.onTouched = { Agent.touched() }
@@ -145,16 +170,40 @@ class AgentService : Service() {
             try { receive(c, id, json) } finally { Binder.restoreCallingIdentity(token) }
         }
 
+        override fun sendStream(id: String?, pipe: ParcelFileDescriptor?) {
+            pipe ?: return
+            val c = callers[Binder.getCallingUid()]
+            if (c == null || id.isNullOrEmpty() || id.length > MAX_ID || c.reading.size >= MAX_STREAMS ||
+                c.reading.putIfAbsent(id, pipe) != null) {
+                Log.w(TAG, "${c?.pkg}: a stream dropped")
+                try { pipe.close() } catch (_: Exception) {}
+                return
+            }
+            thread(name = "agent-in", isDaemon = true) {
+                val bytes = try { readStream(pipe) } finally { c.reading.remove(id, pipe) }
+                when {
+                    bytes == null -> Log.w(TAG, "${c.pkg}: stream $id ended early")   // no answer: the caller answers itself
+                    bytes.size > MAX_STREAM -> answer(c, id, null, rpcError(null, -32600, "The message is over 2 MiB."))
+                    else -> {
+                        val token = Binder.clearCallingIdentity()
+                        try { receive(c, id, String(bytes, Charsets.UTF_8), MAX_STREAM, streamed = true) }
+                        finally { Binder.restoreCallingIdentity(token) }
+                    }
+                }
+            }
+        }
+
         override fun cancel(id: String?) {
             val c = callers[Binder.getCallingUid()] ?: return
-            id?.let { c.running.remove(it)?.cancel() }
+            id ?: return
+            c.reading.remove(id)?.let { try { it.close() } catch (_: Exception) {} }
+            c.running.remove(id)?.cancel()
         }
 
         override fun stop() {
             val c = callers[Binder.getCallingUid()] ?: return
             if (Agent.refusalFor(c.pkg, c.cert) != null) return
-            c.running.values.forEach { it.cancel() }
-            c.running.clear()
+            dropCaller(c)
             Agent.stop(c.pkg, "caller")
         }
 
@@ -210,8 +259,7 @@ class AgentService : Service() {
         val death = IBinder.DeathRecipient {
             // The caller's process died: its running requests are dropped.
             if (callers[uid] === c && c.callback === callback) {
-                c.running.values.forEach { it.cancel() }
-                c.running.clear()
+                dropCaller(c)
                 callers.remove(uid)
                 c.exec.shutdownNow()
             }
@@ -241,9 +289,13 @@ class AgentService : Service() {
 
     // ------------------------------------------------------------ messages
 
-    private fun receive(c: Caller, id: String?, json: String?) {
+    /** One message, from send ([max] 32 Ki characters) or sendStream ([streamed], 2 MiB), read to its end. */
+    private fun receive(c: Caller, id: String?, json: String?, max: Int = MAX_CHARS, streamed: Boolean = false) {
         if (id.isNullOrEmpty() || id.length > MAX_ID) { Log.w(TAG, "${c.pkg}: a message with no usable id"); return }
-        if (json == null || json.length > MAX_CHARS) { answer(c, id, null, rpcError(null, -32600, "The message is over 32 Ki characters.")); return }
+        if (json == null || json.length > max) {
+            answer(c, id, null, rpcError(null, -32600, if (streamed) "The message is over 2 MiB." else "The message is over 32 Ki characters."))
+            return
+        }
         val msg = try { JSONObject(json) } catch (_: Exception) {
             answer(c, id, null, rpcError(null, -32700, "Not JSON.")); return
         }
@@ -279,7 +331,7 @@ class AgentService : Service() {
                 }
                 // Who the agent says it is, only to draw it on the taskbar (AgentPerson): it decides nothing.
                 val who = AgentPerson.parse(params.optJSONObject("_meta"))
-                val call = Call(id, mcpId)
+                val call = Call(id, mcpId, if (tool.name == "folder_write") c.pkg else null)
                 c.running[id] = call
                 call.future = c.exec.submit { runCall(c, call, tool, args, who) }
             }
@@ -309,10 +361,11 @@ class AgentService : Service() {
         // wait_for's own timeout_ms adds to its time (5 s if it doesn't say), within its 15 s limit.
         val plus = tool.plusArgument?.let { a -> (args.opt(a) as? Number)?.toLong()?.coerceIn(0, 15_000) ?: 5_000 } ?: 0
         val deadline = System.currentTimeMillis() + tool.longestMs + plus
+        if (fileCalls != tool.file) { fileCalls = tool.file; watchTouches() }
         var began = false
         var checked = false   // whether the checks passed, so it's a real call (logged every time)
         val (result, front) = try {
-            val refusal = check(c, deadline)
+            val refusal = check(c, tool, deadline)
                 ?: Agent.beginCall(c.pkg)?.let { controlRefused(it) }   // control again, now under Agent's lock
             if (refusal != null) refusal to null
             else {
@@ -332,7 +385,9 @@ class AgentService : Service() {
         }
         val outcome = Tools.outcome(result)
         if (began) AgentPerson.ended(c.pkg, failed = outcome != "ok")
-        if (checked || quietEnough(c, outcome)) AgentLog.add(c.pkg, tool.name, front, outcome)
+        // A file's chunks between its first and its last aren't logged: the log names each file once.
+        val unlogged = front == SharedFolder.UNLOGGED
+        if (!unlogged && (checked || quietEnough(c, outcome))) AgentLog.add(c.pkg, tool.name, front, outcome)
         // A cancelled call was taken out of running when it was cancelled, and gets no answer.
         if (!call.cancelled) answer(c, call.id, call, rpcResult(call.mcpId, result)) else c.running.remove(call.id, call)
     }
@@ -352,8 +407,8 @@ class AgentService : Service() {
         else -> Tools.refused("paused", "The user touched the screen. The agent can go on after the user's next message.")
     }
 
-    /** Part 3's limits 1–5, which every tool checks. Null when the call may go ahead. */
-    private fun check(c: Caller, deadline: Long): JSONObject? {
+    /** Part 3's limits 1–5, which every tool checks (file calls: 1–4 and 9). Null when the call may go ahead. */
+    private fun check(c: Caller, tool: Tools.Tool, deadline: Long): JSONObject? {
         val app = Agent.label(c.pkg)
         when (Agent.refusalFor(c.pkg, c.cert)) {
             "switched_off" -> return Tools.refused("switched_off", "Agent control is switched off on the tablet (TabDesk → Customize → Agent).")
@@ -364,10 +419,18 @@ class AgentService : Service() {
         }
         Agent.controlRefusal(c.pkg)?.let { return controlRefused(it) }
         val now = System.currentTimeMillis()
-        synchronized(c.recent) {
-            while (c.recent.isNotEmpty() && now - c.recent.first() >= 1000) c.recent.removeFirst()
-            if (c.recent.size >= RATE_PER_SECOND) return Tools.refused("rate_limited", "Too many calls: wait a second.")
-            c.recent.addLast(now)
+        val (recent, rate) = if (tool.file) c.recentFiles to FILE_RATE_PER_SECOND else c.recent to RATE_PER_SECOND
+        synchronized(recent) {
+            while (recent.isNotEmpty() && now - recent.first() >= 1000) recent.removeFirst()
+            if (recent.size >= rate) return Tools.refused("rate_limited", "Too many calls: wait a second.")
+            recent.addLast(now)
+        }
+        if (tool.file) return when {
+            !Agent.folder -> Tools.refused("folder_off", "The shared folder is switched off on the tablet (TabDesk → " +
+                "Customize → Agent → \"Let the agent use the TabDeskAgent folder\").")
+            SharedFolder.tree(this) == null -> Tools.refused("folder_not_set", "The shared folder isn't set up on the " +
+                "tablet, or TabDesk lost its access to it: TabDesk → Customize → Agent → Shared folder.")
+            else -> null
         }
         if (!HelperClient.connected && AdbKey.exists(this)) {
             // It may just be connecting (a restarted TabDesk finds the running helper within a second or two). Only
@@ -423,6 +486,38 @@ class AgentService : Service() {
         }
     }
 
+    /**
+     * Reads a message sent with sendStream, to its end. Null if it was cancelled, or the caller stopped writing for 10
+     * seconds; more than [MAX_STREAM] bytes if it's too big (it stops reading there).
+     */
+    private fun readStream(pipe: ParcelFileDescriptor): ByteArray? {
+        var progress = System.currentTimeMillis()
+        val watch = object : Runnable {
+            override fun run() {
+                if (System.currentTimeMillis() - progress >= STREAM_STALL_MS) { try { pipe.close() } catch (_: Exception) {} }
+                else main.postDelayed(this, 1000)
+            }
+        }
+        main.postDelayed(watch, 1000)
+        return try {
+            ParcelFileDescriptor.AutoCloseInputStream(pipe).use { inp ->
+                val out = java.io.ByteArrayOutputStream()
+                val buf = ByteArray(64 * 1024)
+                while (out.size() <= MAX_STREAM) {
+                    val n = inp.read(buf)
+                    if (n < 0) break
+                    out.write(buf, 0, n)
+                    progress = System.currentTimeMillis()
+                }
+                out.toByteArray()
+            }
+        } catch (_: Exception) {
+            null   // cancelled, or stalled
+        } finally {
+            main.removeCallbacks(watch)
+        }
+    }
+
     /** Writes a big answer into the pipe. If the caller stops reading for 10 seconds, the pipe is closed. */
     private fun stream(pipe: ParcelFileDescriptor, bytes: ByteArray) {
         var progress = System.currentTimeMillis()
@@ -450,19 +545,23 @@ class AgentService : Service() {
         }
     }
 
-    /** Stop on TabDesk: every caller's running requests go, unanswered. */
-    /** Drops [pkg]'s running requests, with no replies. */
-    private fun dropFor(pkg: String) {
-        for (c in callers.values) if (c.pkg == pkg) {
-            c.running.values.forEach { it.cancel() }
-            c.running.clear()
-        }
+    /** Drops [c]'s running requests and the messages still being read, with no replies, and its unfinished upload. */
+    private fun dropCaller(c: Caller) {
+        c.reading.values.forEach { try { it.close() } catch (_: Exception) {} }
+        c.reading.clear()
+        c.running.values.forEach { it.cancel() }
+        c.running.clear()
+        SharedFolder.drop(c.pkg)
     }
 
+    /** Drops [pkg]'s running requests, with no replies. */
+    private fun dropFor(pkg: String) {
+        for (c in callers.values) if (c.pkg == pkg) dropCaller(c)
+    }
+
+    /** Stop on TabDesk: every caller's running requests go, unanswered. */
     private fun dropAll() {
-        for (c in callers.values) {
-            c.running.values.forEach { it.cancel() }
-            c.running.clear()
-        }
+        for (c in callers.values) dropCaller(c)
+        SharedFolder.dropAll()
     }
 }

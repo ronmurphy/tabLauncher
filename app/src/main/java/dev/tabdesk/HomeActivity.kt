@@ -234,6 +234,7 @@ class HomeActivity : TabActivity() {
         if (Backup.onResult(this, requestCode, resultCode, data)) return
         if (IconThemes.onResult(this, requestCode, resultCode, data)) return
         if (Fonts.onResult(this, requestCode, resultCode, data)) return
+        if (dev.tabdesk.agent.SharedFolder.onResult(this, requestCode, resultCode, data)) return
         if (requestCode == ScreenTimeout.REQ_PERMISSION) { refreshSettings(); return }
         super.onActivityResult(requestCode, resultCode, data)
     }

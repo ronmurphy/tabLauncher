@@ -29,8 +29,8 @@ import java.util.concurrent.CopyOnWriteArrayList
  * tablet changes it, in Customize → Agent: the agent can never read or use TabDesk's own screens.
  */
 object Agent {
-    const val INTERFACE = 1
-    const val TOOLS = 2
+    const val INTERFACE = 2
+    const val TOOLS = 3
     const val ACTION_SETTINGS = "dev.tabdesk.action.AGENT_SETTINGS"
     const val LAPSE_MS = 7L * 24 * 60 * 60 * 1000
     private const val WARN_BEFORE_MS = 24L * 60 * 60 * 1000
@@ -61,6 +61,10 @@ object Agent {
     @Volatile var wake = false; private set
     /** "Let the agent tap and type": tool list 2's actions in the allowed apps. Off by default. */
     @Volatile var acting = false; private set
+    /** "Let the agent use the TabDeskAgent folder": tool list 3, for the agent's host. Off by default. */
+    @Volatile var folder = false; private set
+    /** The shared folder's tree, which the user picked in Android's folder picker (SharedFolder). */
+    @Volatile var folderUri: String? = null; private set
     @Volatile private var tabletName: String? = null
     /**
      * The switches TabDesk turned off when an approved app's signature changed (Part 3, "When they go off"), by app:
@@ -124,9 +128,12 @@ object Agent {
     // ------------------------------------------------------------ the switches that widen what the agent may do
 
     /** Part 3's switches (not the master switch or the allowed apps), by key, with their short names. */
-    private val WIDENING = listOf("acting" to "tap and type", "wake" to "wake the screen", "nameAll" to "see running apps")
+    private val WIDENING = listOf("acting" to "tap and type", "wake" to "wake the screen", "nameAll" to "see running apps",
+        "folder" to "the shared folder")
 
-    private fun isOn(key: String) = when (key) { "acting" -> acting; "wake" -> wake; "nameAll" -> nameAll; else -> false }
+    private fun isOn(key: String) = when (key) {
+        "acting" -> acting; "wake" -> wake; "nameAll" -> nameAll; "folder" -> folder; else -> false
+    }
     private fun shortName(key: String) = WIDENING.firstOrNull { it.first == key }?.second ?: key
 
     /** The ones on now, by short name: for the log, the approved apps' rows and the weekly reminder. */
@@ -242,6 +249,17 @@ object Agent {
         changed("")
     }
 
+    fun setFolder(on: Boolean) {
+        synchronized(this) { folder = on; userSet("folder"); save() }
+        if (!on) SharedFolder.dropAll()
+        changed("")
+    }
+
+    fun setFolderUri(uri: String?) {
+        synchronized(this) { folderUri = uri; save() }
+        changed("")
+    }
+
     fun setTabletName(name: String?) {
         synchronized(this) { tabletName = name?.trim()?.takeIf { it.isNotEmpty() }; save() }
         changed("")
@@ -266,6 +284,7 @@ object Agent {
                     if ("acting" in turnedOff) acting = false
                     if ("wake" in turnedOff) wake = false
                     if ("nameAll" in turnedOff) nameAll = false
+                    if ("folder" in turnedOff) folder = false
                     offForCert[pkg] = (offForCert[pkg].orEmpty() + turnedOff).distinct()
                 }
             }
@@ -491,6 +510,8 @@ object Agent {
         nameAll = o.optBoolean("nameAll")
         wake = o.optBoolean("wake")
         acting = o.optBoolean("acting")
+        folder = o.optBoolean("folder")
+        folderUri = o.optString("folderUri").takeIf { it.isNotEmpty() }
         tabletName = o.optString("tablet").takeIf { it.isNotEmpty() }
         o.optJSONArray("approved")?.let { a -> for (i in 0 until a.length()) a.getJSONObject(i).let {
             approvals[it.getString("pkg")] = Approval(it.getString("pkg"), it.getString("cert"), it.getLong("since"), it.optBoolean("warned"))
@@ -508,6 +529,7 @@ object Agent {
     /** Called with the lock held. Written whole to a new file, then renamed over the old one. */
     private fun save() {
         val o = JSONObject().put("enabled", enabled).put("nameAll", nameAll).put("wake", wake).put("acting", acting)
+            .put("folder", folder).put("folderUri", folderUri ?: "")
             .put("tablet", tabletName ?: "")
             .put("approved", JSONArray(approvals.values.map {
                 JSONObject().put("pkg", it.pkg).put("cert", it.cert).put("since", it.since).put("warned", it.warned) }))

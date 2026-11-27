@@ -78,7 +78,7 @@ object AgentPerson {
         else -> when (tool) {
             null -> if (failed) "oops" else "think"
             "get_item", "wait_for" -> "search"
-            "apps", "usage" -> "book"
+            "apps", "usage", "folder_list", "folder_read", "folder_write" -> "book"
             else -> "tablet"   // screen, open_app, and tool list 2's taps and typing
         }
     }
@@ -100,6 +100,9 @@ object AgentPerson {
             "scroll" -> "scrolling"
             "key" -> "pressing a key"
             "wait_for" -> "waiting for something on the screen"
+            "folder_list" -> "looking in the shared folder"
+            "folder_read" -> "copying a file from the shared folder"
+            "folder_write" -> "putting a file in the shared folder"
             else -> "using the tablet"
         }
     }

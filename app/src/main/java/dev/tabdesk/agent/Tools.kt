@@ -25,8 +25,12 @@ import java.util.concurrent.TimeUnit
  * tool runs are in [AgentService]; the never list is in [Never].
  */
 internal object Tools {
-    /** [plusArgument]: the argument whose milliseconds are added to [longestMs] (wait_for's timeout_ms). */
-    class Tool(val name: String, val longestMs: Long, val def: JSONObject, val checksFront: Boolean, val plusArgument: String? = null)
+    /**
+     * [plusArgument]: the argument whose milliseconds are added to [longestMs] (wait_for's timeout_ms). [file]: tool
+     * list 3's, for the agent's host only: they use the shared folder, not the screen or the helper.
+     */
+    class Tool(val name: String, val longestMs: Long, val def: JSONObject, val checksFront: Boolean, val plusArgument: String? = null,
+               val file: Boolean = false)
 
     private val noArgs = JSONObject().put("type", "object").put("properties", JSONObject()).put("additionalProperties", false)
     private val readOnly = JSONObject().put("readOnlyHint", true)
@@ -159,6 +163,36 @@ internal object Tools {
                 "timeout_ms" to JSONObject().put("type", "integer").put("minimum", 0).put("maximum", 15000).put("default", 5000)
                     .put("description", "How long to wait, at most 15000.")), "target"))
             .put("annotations", readOnly), checksFront = true, plusArgument = "timeout_ms"),
+
+        // Tool list 3: the shared TabDeskAgent folder, only with "Let the agent use the TabDeskAgent folder" on. For
+        // the agent's host (PlasmaLLM's get_file and put_file), which never shows them to the agent.
+        Tool("folder_list", 3000, JSONObject()
+            .put("name", "folder_list").put("title", "List the shared folder")
+            .put("description", "For the agent's host: the files in the tablet's TabDeskAgent folder, newest first.")
+            .put("inputSchema", noArgs).put("annotations", readOnly), checksFront = false, file = true),
+        Tool("folder_read", 10000, JSONObject()
+            .put("name", "folder_read").put("title", "Read a chunk of a file")
+            .put("description", "For the agent's host: up to 1 MiB of a file in the TabDeskAgent folder, as base64.")
+            .put("inputSchema", schema(props(
+                "name" to str("The file's name, as folder_list gives it."),
+                "offset" to JSONObject().put("type", "integer").put("minimum", 0).put("default", 0),
+                "length" to JSONObject().put("type", "integer").put("minimum", 1).put("maximum", SharedFolder.MAX_CHUNK)
+                    .put("default", SharedFolder.MAX_CHUNK)), "name"))
+            .put("annotations", readOnly), checksFront = false, file = true),
+        Tool("folder_write", 10000, JSONObject()
+            .put("name", "folder_write").put("title", "Write a chunk of a file")
+            .put("description", "For the agent's host: up to 1 MiB of a new file in the TabDeskAgent folder, as " +
+                "base64, chunk by chunk. Nothing is replaced: a name that's taken gets \"name (1).ext\".")
+            .put("inputSchema", schema(props(
+                "name" to str("The new file's name."),
+                "size" to JSONObject().put("type", "integer").put("minimum", 0).put("maximum", SharedFolder.MAX_FILE)
+                    .put("description", "The whole file's size in bytes."),
+                "offset" to JSONObject().put("type", "integer").put("minimum", 0),
+                "data" to str("This chunk, base64, at most 1 MiB once decoded."),
+                "upload" to str("From the first chunk's answer; needed for every later chunk."),
+                "last" to bool("This is the last chunk.")), "name", "size", "offset", "data"))
+            .put("annotations", JSONObject().put("readOnlyHint", false).put("destructiveHint", false).put("idempotentHint", false)),
+            checksFront = false, file = true),
     )
 
     fun find(name: String) = all.firstOrNull { it.name == name }
@@ -166,6 +200,7 @@ internal object Tools {
     fun listResult(): JSONObject = JSONObject().put("tools", JSONArray(all.map {
         JSONObject(it.def.toString()).put("_meta", JSONObject().put("dev.tabdesk/longest_ms", it.longestMs).also { m ->
             it.plusArgument?.let { a -> m.put("dev.tabdesk/plus_argument", a) }
+            if (it.file) m.put("dev.tabdesk/host_only", true)
         })
     }))
 
@@ -212,6 +247,9 @@ internal object Tools {
             "scroll" -> ActTools.scroll(ctx, caller, args, deadline)
             "key" -> ActTools.key(ctx, args, deadline)
             "wait_for" -> ActTools.waitFor(ctx, caller, args, deadline)
+            "folder_list" -> SharedFolder.list(ctx)
+            "folder_read" -> SharedFolder.read(ctx, caller, args)
+            "folder_write" -> SharedFolder.write(ctx, caller, args)
             else -> error("bad_arguments", "Unknown tool.") to null
         }
     }

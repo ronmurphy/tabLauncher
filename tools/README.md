@@ -110,6 +110,12 @@ tools/agentcaller/run.sh overlay-off              #   focus, like a chat bubble 
                                                   #   and appops set dev.tabdesk.agentcaller SYSTEM_ALERT_WINDOW allow)
 tools/agentcaller/run.sh pw                       # a password field holding "hunter2", to check it's never read
 tools/agentcaller/run.sh over                     # pw, with seethrough/'s see-through card over it in the same task
+tools/agentcaller/run.sh call folder_list         # the shared folder (tool list 3), once it's set up and switched on
+tools/agentcaller/run.sh put test.bin 3000000     # 3 MB of made-up bytes, 1 MiB chunks through sendStream; logs SHA-256
+tools/agentcaller/run.sh put part.bin 3000000 1048576 1   # stops after one chunk: the upload is removed after 60 s
+tools/agentcaller/run.sh get test.bin             # reads it back chunk by chunk, and logs its size and SHA-256
+tools/agentcaller/run.sh streamhalf               # sendStream with half a message (-32700); also streamping,
+                                                  #   streamstall (half, then 13 s) and streambig (2.5 MiB)
 META='{"dev.tabdesk/agent":{"name":"tabLauncher","agent":"claude","person":{"hair":"swoop","haircolor":"teal"}}}' \
   tools/agentcaller/run.sh call apps              # with the call's _meta: the agent's Pixel Person on the taskbar
 TWO=1 tools/agentcaller/run.sh build              # a second caller ("Agent caller 2", logs as AgentCaller2), to

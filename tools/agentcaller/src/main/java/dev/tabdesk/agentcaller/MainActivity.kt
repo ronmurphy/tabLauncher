@@ -34,6 +34,12 @@ import kotlin.concurrent.thread
  * keyboard's focus, like a chat bubble, so the focus is in another app's window). heads and overlay are for plan
  * T12; on the emulator, grant them first: pm grant dev.tabdesk.agentcaller android.permission.POST_NOTIFICATIONS,
  * and appops set dev.tabdesk.agentcaller SYSTEM_ALERT_WINDOW allow.
+ *
+ * The shared folder (tool list 3, plan T13), as PlasmaLLM's put_file and get_file would use it: put (extras "name",
+ * "size", optional "chunk" bytes and "stopafter" chunks: it stops there, leaving the upload unfinished) writes made-up
+ * bytes chunk by chunk through sendStream and logs their SHA-256; get (extra "name") reads a file back chunk by chunk
+ * and logs its size and SHA-256. streamping, streamhalf (half a message, then the pipe closes), streamstall (half,
+ * then 13 s with nothing) and streambig (2.5 MiB) test sendStream itself.
  */
 class MainActivity : Activity() {
     private lateinit var out: TextView
@@ -95,15 +101,102 @@ object Caller {
     private val exec = Executors.newSingleThreadExecutor()
     @Volatile var ui: ((String) -> Unit)? = null
 
+    /** Answers that put and get wait for, by id: they get the answer's JSON instead of the log. */
+    private val waiters = java.util.concurrent.ConcurrentHashMap<String, java.util.concurrent.ArrayBlockingQueue<String>>()
+
     private val callback = object : IAgentCallback.Stub() {
-        override fun reply(id: String, json: String) = log("REPLY $id $json")
+        override fun reply(id: String, json: String) {
+            waiters[id]?.let { it.offer(json); return }
+            log("REPLY $id $json")
+        }
         override fun onControlState(state: String, reason: String) = log("STATE $state $reason")
         override fun replyStream(id: String, pipe: ParcelFileDescriptor) {
             thread {
                 val bytes = try { ParcelFileDescriptor.AutoCloseInputStream(pipe).use { it.readBytes() } } catch (e: Exception) { null }
+                val w = waiters[id]
+                if (w != null) { w.offer(bytes?.let { String(it) } ?: "(stream failed)"); return@thread }
                 log("STREAM $id ${bytes?.size ?: -1} bytes ${bytes?.let { String(it) } ?: "(failed)"}")
             }
         }
+    }
+
+    /** Sends [json] through a pipe (sendStream): [cut] bytes, then [holdMs] with nothing, then the rest (or not, if [rest] is false). */
+    private fun sendStream(id: String, json: String, cut: Int = -1, holdMs: Long = 0, rest: Boolean = true) {
+        val s = service ?: return log("ERROR not bound")
+        val bytes = json.toByteArray()
+        val (r, w) = ParcelFileDescriptor.createPipe()
+        s.sendStream(id, r)
+        r.close()
+        thread {
+            try {
+                ParcelFileDescriptor.AutoCloseOutputStream(w).use { o ->
+                    val first = if (cut < 0) bytes.size else cut
+                    o.write(bytes, 0, first)
+                    if (holdMs > 0) Thread.sleep(holdMs)
+                    if (rest && first < bytes.size) o.write(bytes, first, bytes.size - first)
+                }
+            } catch (e: Exception) { log("STREAM_WRITE_FAILED $id $e") }
+        }
+    }
+
+    /** One tools/call, waiting for its answer (up to 20 s): through sendStream when it's over 32 Ki characters. */
+    private fun callAndWait(tool: String, args: JSONObject): JSONObject? {
+        val id = id()
+        val json = request("tools/call", JSONObject().put("name", tool).put("arguments", args)).toString()
+        val q = java.util.concurrent.ArrayBlockingQueue<String>(1)
+        waiters[id] = q
+        try {
+            if (json.length > 32 * 1024) sendStream(id, json) else service?.send(id, json) ?: return null.also { log("ERROR not bound") }
+            val answer = q.poll(20, java.util.concurrent.TimeUnit.SECONDS) ?: return null.also { log("NO_ANSWER $id $tool") }
+            return JSONObject(answer).optJSONObject("result") ?: null.also { log("RPC_ERROR $id $answer") }
+        } finally { waiters.remove(id) }
+    }
+
+    private fun sha256(b: ByteArray) = java.security.MessageDigest.getInstance("SHA-256").digest(b).joinToString("") { "%02x".format(it) }
+
+    private fun textOf(result: JSONObject) = result.getJSONArray("content").let { it.getJSONObject(it.length() - 1).getString("text") }
+
+    private fun put(name: String, size: Int, chunk: Int, stopAfter: Int) {
+        val data = ByteArray(size).also { java.util.Random(size.toLong()).nextBytes(it) }
+        log("PUT $name $size bytes sha256 ${sha256(data)}")
+        var offset = 0
+        var upload: String? = null
+        var n = 0
+        val began = System.currentTimeMillis()
+        do {
+            val end = minOf(offset + chunk, size)
+            val last = end == size
+            val args = JSONObject().put("name", name).put("size", size).put("offset", offset)
+                .put("data", java.util.Base64.getEncoder().encodeToString(data.copyOfRange(offset, end)))
+            upload?.let { args.put("upload", it) }
+            if (last) args.put("last", true)
+            val r = callAndWait("folder_write", args) ?: return
+            if (r.optBoolean("isError")) return log("PUT_REFUSED at $offset ${textOf(r)}")
+            val o = JSONObject(textOf(r))
+            upload = o.optString("upload").takeIf { it.isNotEmpty() } ?: upload
+            offset = end
+            n++
+            if (last) return log("PUT_DONE ${o} in ${System.currentTimeMillis() - began} ms")
+            if (stopAfter in 1..n) return log("PUT_STOPPED after $n chunks, upload $upload")
+        } while (true)
+    }
+
+    private fun get(name: String, length: Int) {
+        val out = java.io.ByteArrayOutputStream()
+        var offset = 0L
+        var said = ""
+        val began = System.currentTimeMillis()
+        while (true) {
+            val r = callAndWait("folder_read", JSONObject().put("name", name).put("offset", offset).put("length", length)) ?: return
+            if (r.optBoolean("isError")) return log("GET_REFUSED at $offset ${textOf(r)}")
+            val o = JSONObject(textOf(r))
+            val b = java.util.Base64.getDecoder().decode(o.getString("data"))
+            out.write(b)
+            offset += b.size
+            if (o.getBoolean("last")) { said = o.optString("sha256"); break }
+        }
+        val all = out.toByteArray()
+        log("GET_DONE $name ${all.size} bytes sha256 ${sha256(all)} (TabDesk said $said) in ${System.currentTimeMillis() - began} ms")
     }
 
     private fun log(s: String) {
@@ -220,6 +313,16 @@ object Caller {
                 send(request("tools/call", JSONObject().put("name", "apps").put("arguments", JSONObject())))
             }
             "die" -> { log("DYING"); Runtime.getRuntime().halt(1) }
+            "put" -> put(i.getStringExtra("name") ?: "test.bin", i.getStringExtra("size")?.toInt() ?: 3_000_000,
+                i.getStringExtra("chunk")?.toInt() ?: 1_048_576, i.getStringExtra("stopafter")?.toInt() ?: 0)
+            "get" -> get(i.getStringExtra("name") ?: "test.bin", i.getStringExtra("length")?.toInt() ?: 1_048_576)
+            "streamping" -> { val id = id(); log("SENDSTREAM $id ping"); sendStream(id, request("ping").toString()) }
+            "streamhalf" -> { val id = id(); val j = request("ping").toString(); log("SENDSTREAM $id half a ping")
+                sendStream(id, j, cut = j.length / 2, rest = false) }
+            "streamstall" -> { val id = id(); val j = request("ping").toString(); log("SENDSTREAM $id half a ping, then 13 s")
+                sendStream(id, j, cut = j.length / 2, holdMs = 13_000) }
+            "streambig" -> { val id = id(); log("SENDSTREAM $id 2.5 MiB")
+                sendStream(id, "{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"ping\",\"pad\":\"" + "x".repeat(2_600_000) + "\"}") }
             "heads" -> heads()
             "overlay" -> main.post { overlay(true) }
             "overlay-off" -> main.post { overlay(false) }

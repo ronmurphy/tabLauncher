@@ -12,6 +12,7 @@ import dev.tabdesk.*
 import dev.tabdesk.agent.Agent
 import dev.tabdesk.agent.AgentLog
 import dev.tabdesk.agent.Never
+import dev.tabdesk.agent.SharedFolder
 import java.util.Date
 import java.util.Locale
 
@@ -76,6 +77,21 @@ internal fun Page.agent() {
     addNote("On: in the apps you allow above, the agent can tap, type, swipe, scroll, and press Back, Enter and Home, " +
         "like a finger would. Never in a password field, and never where another window is over the spot. Touching " +
         "the screen yourself while it works pauses it until your next message or Continue. Off: it can only read.")
+
+    section("Shared folder")
+    add(switchRow(act, "Let the agent use the TabDeskAgent folder", Agent.folder) { Agent.setFolder(it) })
+    addNote("On: the agent’s app can see the names of the files in the TabDeskAgent folder, copy them to the " +
+        "computer the agent runs on, and put new files there for you. Nothing outside that folder. It never deletes or " +
+        "replaces a file: a new one with a name that’s taken gets “(1)”. It can’t put apps (APK files) there, and " +
+        "nothing it puts there is opened. Put in the folder only what you’re happy for the agent to read.")
+    val tree = SharedFolder.tree(act)
+    noteWithButton(when {
+        tree != null -> "The folder: ${SharedFolder.where(tree)}."
+        Agent.folderUri != null -> "TabDesk lost its access to the folder, or it was moved or renamed. Set it up again."
+        else -> "Not set up yet. Set up makes Download/TabDeskAgent, then Android asks you to let TabDesk use that folder: " +
+            "tap “Use this folder”, then Allow."
+    }, act.overlays.button(if (tree != null) "Change" else "Set up", tree == null) { SharedFolder.setUp(act) },
+        top = 8)
 
     section("This tablet")
     noteWithButton("An agent knows this tablet as “${Agent.tablet()}”, so a second tablet can be told apart.",
