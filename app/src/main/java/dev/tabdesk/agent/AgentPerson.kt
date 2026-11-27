@@ -77,7 +77,7 @@ object AgentPerson {
         Agent.STOPPED, Agent.PAUSED -> "stop"
         else -> when (tool) {
             null -> if (failed) "oops" else "think"
-            "get_item" -> "search"
+            "get_item", "wait_for" -> "search"
             "apps", "usage" -> "book"
             else -> "tablet"   // screen, open_app, and tool list 2's taps and typing
         }
@@ -94,6 +94,12 @@ object AgentPerson {
             "open_app" -> "opening an app"
             "apps" -> "looking at the allowed apps"
             "usage" -> "looking at what's running"
+            "tap" -> "tapping"
+            "type" -> "typing"
+            "swipe" -> "swiping"
+            "scroll" -> "scrolling"
+            "key" -> "pressing a key"
+            "wait_for" -> "waiting for something on the screen"
             else -> "using the tablet"
         }
     }

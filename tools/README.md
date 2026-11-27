@@ -34,6 +34,12 @@ it over adb as `emulator-5554`:
     tools/emulator/helper.sh read - - -1 1024   # what an agent reads of the app in front, with a 1024 px picture
                                                 # (then: adb exec-out cat /data/local/tmp/read.jpg > read.jpg)
     tools/emulator/helper.sh windows            # the windows on screen: type, layer, task, bounds, package
+    tools/emulator/helper.sh act "'{\"op\":\"scroll\",\"dir\":\"down\"}'"   # one agent action in the app in front,
+                                                # with its checks (ops and fields: helper/Actor.kt's act)
+    tools/emulator/helper.sh touches 10         # print each real touch for 10 s, as the agent's pause sees them
+    adb -s emulator-5554 emu event mouse 1400 900 0 1; adb -s emulator-5554 emu event mouse 1400 900 0 0
+                                                # a real touch at 1400, 900 (down, then up), e.g. to pause the agent;
+                                                # `adb shell input tap` is injected, so the pause doesn't see it
     adb -s emulator-5554 emu avd snapshot save default_boot   # keep what you set up (see below)
     adb -s emulator-5554 emu kill               # shut it down
 
@@ -91,6 +97,12 @@ tools/agentcaller/run.sh cancel c1:4              # the ids it logs
 tools/agentcaller/run.sh burst 6                  # six calls at once: the rate limit refuses two
 tools/agentcaller/run.sh call open_app '{"app":"Clock"}'   # after switching Clock on in Customize → Agent
 tools/agentcaller/run.sh call screen '{"screenshot":"small"}'
+tools/agentcaller/run.sh call tap '{"target":{"content_contains":"Roll d20","role":"button"}}'
+                                                  # tool list 2: after "Let the agent tap and type" in Customize → Agent
+tools/agentcaller/run.sh call type '{"target":{"content_contains":"Name"},"text":"Ada","submit":true}'
+tools/agentcaller/run.sh call scroll '{"direction":"down","amount":"half"}'
+tools/agentcaller/run.sh call wait_for '{"target":{"content_contains":"Rolled"},"timeout_ms":3000}'
+tools/agentcaller/run.sh resume                   # after a real touch paused it (or Stop)
 tools/agentcaller/run.sh pw                       # a password field holding "hunter2", to check it's never read
 tools/agentcaller/run.sh over                     # pw, with seethrough/'s see-through card over it in the same task
 META='{"dev.tabdesk/agent":{"name":"tabLauncher","agent":"claude","person":{"hair":"swoop","haircolor":"teal"}}}' \
@@ -101,11 +113,13 @@ tools/agentcaller/run.sh build-alt                # the same app with another ke
 tools/agentcaller/run.sh log
 ```
 
-## seethrough/: a see-through window for screenshot tests
+## seethrough/: a see-through window for screenshot tests, and a pad for acting tests
 
-A small app (package `dev.tabdesk.seethrough`, "See-through (test)") with one see-through activity: a yellow card
-in the middle of a translucent window, so whatever is under it shows around the card. Switch it on in Customize →
-Agent, then:
+A small app (package `dev.tabdesk.seethrough`, "See-through (test)") with a see-through activity, `Card`: a yellow
+card in the middle of a translucent window, so whatever is under it shows around the card. Its second activity,
+`Pad`, is for tool list 2: a "Roll d20" button, a "Hold me" button (long press), a Name field, a Password field
+(where typing must be refused), and 40 rows to scroll. It logs what happens to it with the tag `Pad`
+(`adb logcat -s Pad`), so a test can tell whether a tap landed. Switch the app on in Customize → Agent, then:
 
 ```sh
 ./gradlew -p tools/seethrough --offline assembleDebug
@@ -115,4 +129,5 @@ adb -s emulator-5554 shell am start -n dev.tabdesk.seethrough/.Card   # in its o
                                                                      # that, there's none
 tools/agentcaller/run.sh over                                        # over the caller in its task: no picture
 tools/agentcaller/run.sh call screen '{"screenshot":"large"}'
+adb -s emulator-5554 shell am start -n dev.tabdesk.seethrough/.Pad    # the pad, for the acting tools above
 ```

@@ -79,10 +79,14 @@ class AgentService : Service() {
 
     private val callers = ConcurrentHashMap<Int, Caller>()
     private val main = Handler(Looper.getMainLooper())
-    private val onState: (String) -> Unit = {
+    private val onState: (String) -> Unit = { event ->
+        // A touch paused control: the action running for the app using the tablet is dropped, as Stop drops it.
+        if (event == "touched") Agent.controller?.let { dropFor(it) }
         pushStates()
         // UiAutomation counts as an accessibility service while the helper reads: let go of it once control isn't active.
         if (Agent.control != Agent.ACTIVE) HelperClient.stopReading()
+        // A real touch pauses the agent, so the helper watches for one only while an app is using the tablet.
+        HelperClient.watchTouches(Agent.control == Agent.ACTIVE)
     }
 
     override fun onCreate() {
@@ -92,6 +96,7 @@ class AgentService : Service() {
         AgentLog.init(this)
         instance = this
         Agent.stateListeners += onState
+        HelperClient.onTouched = { Agent.touched() }
         // The service can start without the home screen, e.g. when Android restarts TabDesk's process for a caller
         // after a crash: connect to the helper here too, or calls would wait for the home screen to come back.
         if (dev.tabdesk.helper.Setup.ready(this)) HelperClient.ensure(this)
@@ -99,6 +104,8 @@ class AgentService : Service() {
 
     override fun onDestroy() {
         Agent.stateListeners -= onState
+        HelperClient.onTouched = null
+        HelperClient.watchTouches(false)
         dropAll()
         callers.values.forEach { it.exec.shutdownNow() }
         callers.clear()
@@ -299,7 +306,9 @@ class AgentService : Service() {
 
     /** One tools/call, on the caller's own thread: the checks in Part 3's order, then the tool. */
     private fun runCall(c: Caller, call: Call, tool: Tools.Tool, args: JSONObject, who: AgentPerson.Who?) {
-        val deadline = System.currentTimeMillis() + tool.longestMs
+        // wait_for's own timeout_ms adds to its time (5 s if it doesn't say), within its 15 s limit.
+        val plus = tool.plusArgument?.let { a -> (args.opt(a) as? Number)?.toLong()?.coerceIn(0, 15_000) ?: 5_000 } ?: 0
+        val deadline = System.currentTimeMillis() + tool.longestMs + plus
         var began = false
         var checked = false   // whether the checks passed, so it's a real call (logged every time)
         val (result, front) = try {
@@ -442,6 +451,14 @@ class AgentService : Service() {
     }
 
     /** Stop on TabDesk: every caller's running requests go, unanswered. */
+    /** Drops [pkg]'s running requests, with no replies. */
+    private fun dropFor(pkg: String) {
+        for (c in callers.values) if (c.pkg == pkg) {
+            c.running.values.forEach { it.cancel() }
+            c.running.clear()
+        }
+    }
+
     private fun dropAll() {
         for (c in callers.values) {
             c.running.values.forEach { it.cancel() }

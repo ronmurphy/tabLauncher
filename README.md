@@ -110,8 +110,8 @@ the tablet is rotated:
 - **Agent**: letting an app such as DroidACP give an AI agent use of the tablet: the master switch (off
   by default), the apps that asked and the approved ones (each approval lasts a week; Keep allowing
   renews it, Revoke takes it back), the apps the agent may read and open (none until you switch them
-  on), whether it may see the names of running apps or wake the screen, the tablet's name, and a log of
-  the recent calls. See [Agent control](#agent-control)
+  on), whether it may see the names of running apps, wake the screen, or tap and type, the tablet's
+  name, and a log of the recent calls. See [Agent control](#agent-control)
 - **Backup**: export, import, undo import
 
 Start shows a "Recently added" section for apps installed in the last 14 days.
@@ -295,11 +295,14 @@ adb shell cmd package set-home-activity com.zui.launcher/.drawer.DrawerLauncher
 
 - `AgentService.kt`: the bound service: who the caller is (its UID and signing certificate), the MCP
   messages, the checks before each call, one call at a time per caller, answers by reply or by pipe
-- `Agent.kt`: the master switch, approvals and their weekly renewal, who is using the tablet now (idle,
-  active, stopped), and the notifications; kept in `no_backup/`, so no backup carries an approval over
+- `Agent.kt`: the master switch and the others, approvals and their weekly renewal, who is using the
+  tablet now (idle, active, paused, stopped), and the notifications; kept in `no_backup/`, so no backup carries an approval over
 - `Tools.kt`: the tool list, the tools `apps`, `open_app` and `usage`, and the shapes of results and refusals
 - `ScreenTools.kt`: `screen` and `get_item`: the checks before a read (screen on and unlocked, an allowed app
-  in front), turning what the helper read into the agent's items, and the last read for item ids
+  in front), turning what the helper read into the agent's items, the last read for item ids, and
+  locators (an item by its id or by what it says)
+- `ActTools.kt`: tool list 2, `tap`, `type`, `swipe`, `scroll`, `key` and `wait_for`: their arguments, the
+  "Let the agent tap and type" switch, and what the helper's answer means for the agent
 - `Never.kt`: the apps the agent can never read or use, worked out on the tablet
 - `AgentLog.kt`: the last 500 calls, without what was read
 - `AgentPerson.kt`: the agent as its Pixel Person on the taskbar: who it says it is (each call's `_meta`,
@@ -324,6 +327,10 @@ adb shell cmd package set-home-activity com.zui.launcher/.drawer.DrawerLauncher
   remembering its port (Android 12 stops announcing it soon after pairing)
 - `Helper.kt`: the helper itself, run as the shell user with `app_process`: watches tasks, measures CPU and memory
   per app, serves TabDesk on 127.0.0.1
+- `Reader.kt`: reading the allowed app's windows for agent control (UiAutomation), and its screenshots
+- `Actor.kt`: acting in it: injected touches, setting a field's text, Back, Enter and Home, each after
+  checking the window under the finger or the focus is the app's
+- `Touches.kt`: watching the touchscreen (`getevent`) while an agent is using the tablet, for the pause
 - `HelperClient.kt`: TabDesk's side: starts the helper (at startup, after a restart, when a new version is installed), stays connected, and passes on the running tasks and the usage samples
 
 `icons/`: everything about app icons
@@ -395,8 +402,15 @@ is kept outside the repo.
   text and fields, optionally with a screenshot of that app alone; `get_item`), open an app you've
   allowed (`open_app`), list them (`apps`), and see how busy the tablet is (`usage`: the CPU, memory and
   battery, and each running app's share, as TabDesk Tasks shows them). An app you haven't allowed shows
-  as "blocked app" unless you switch on "Let the agent see which apps are running". Tapping and typing
-  come later.
+  as "blocked app" unless you switch on "Let the agent see which apps are running".
+- **Tapping and typing** (from 1.6.0), only once you switch on "Let the agent tap and type": in the apps you've allowed, the agent can tap (or long-press) a button or a point, type
+  into a field, swipe, scroll, press Back, Enter or Home, and wait for something to show up. Each action
+  checks again, just before it happens, that the allowed app is still in front and that the spot isn't
+  under another window (DroidACP's chat, a notification, the keyboard), and never types into a password
+  field. Text goes straight into the field, not through the keyboard, so the keyboard never learns it.
+- **Touch the screen to pause it:** while the agent is using an allowed app, a touch of yours pauses
+  it, like Stop, until your next chat message or Continue. The agent's own taps don't count, since
+  they don't come from the touchscreen.
 - **How it reads:** TabDesk's helper reads the screen through Android's UiAutomation (as `uiautomator`
   does), only while an app is using the tablet, and only the allowed app in front. It never reads a
   password field's text. Windows over the app (the keyboard, a notification, another app) are named
@@ -409,13 +423,16 @@ is kept outside the repo.
   everything until you send your next chat message or tap Continue. Another approved app gets "busy"
   meanwhile, and can't stop or resume it.
 - **The agent itself** stands beside that on the taskbar as its Pixel Person, the small person
-  DroidACP draws for each agent, posed by what it's doing: holding a tablet while it reads the screen
-  or opens an app, a magnifying glass for one item, a book for the app list and `usage`, thinking
+  DroidACP draws for each agent, posed by what it's doing: holding a tablet while it reads the screen,
+  opens an app or taps, a magnifying glass for one item or while it waits, a book for the app list and `usage`, thinking
   between calls, a sweat drop after a refusal, and hands up when stopped. Its look and name come from
   the agent's host with each call; without them it's a default person for the approved app. The
   approved app's own name always stays on the pill.
 - **Every call is logged** (the last 500, in Customize → Agent): when, which app, what it asked for,
-  and the outcome, never what was read.
+  the outcome, and which of the switches above were on, never what was read.
+- **A new signature turns the switches off:** if an approved app comes back signed differently, it's a
+  different app, so "tap and type", "wake the screen" and "see which apps are running" go off. Its row
+  says which were on, so setting them again is quick.
 
 ## Floating windows
 

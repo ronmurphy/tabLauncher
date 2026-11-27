@@ -30,7 +30,7 @@ import java.util.concurrent.CopyOnWriteArrayList
  */
 object Agent {
     const val INTERFACE = 1
-    const val TOOLS = 1
+    const val TOOLS = 2
     const val ACTION_SETTINGS = "dev.tabdesk.action.AGENT_SETTINGS"
     const val LAPSE_MS = 7L * 24 * 60 * 60 * 1000
     private const val WARN_BEFORE_MS = 24L * 60 * 60 * 1000
@@ -59,7 +59,14 @@ object Agent {
     @Volatile var nameAll = false; private set
     /** "Let the agent wake the screen": a read or open_app with the screen off wakes it (never past the lock). */
     @Volatile var wake = false; private set
+    /** "Let the agent tap and type": tool list 2's actions in the allowed apps. Off by default. */
+    @Volatile var acting = false; private set
     @Volatile private var tabletName: String? = null
+    /**
+     * The switches TabDesk turned off when an approved app's signature changed (Part 3, "When they go off"), by app:
+     * shown on that app's row in Customize → Agent until the user sets one of them again, or revokes the app.
+     */
+    private val offForCert = LinkedHashMap<String, List<String>>()
     private val approvals = LinkedHashMap<String, Approval>()
     private val asked = LinkedHashMap<String, Asked>()
     private val allowed = LinkedHashSet<String>()
@@ -113,6 +120,28 @@ object Agent {
     }
 
     fun lapsesAt(pkg: String): Long? = synchronized(this) { approvals[pkg]?.lapses }
+
+    // ------------------------------------------------------------ the switches that widen what the agent may do
+
+    /** Part 3's switches (not the master switch or the allowed apps), by key, with their short names. */
+    private val WIDENING = listOf("acting" to "tap and type", "wake" to "wake the screen", "nameAll" to "see running apps")
+
+    private fun isOn(key: String) = when (key) { "acting" -> acting; "wake" -> wake; "nameAll" -> nameAll; else -> false }
+    private fun shortName(key: String) = WIDENING.firstOrNull { it.first == key }?.second ?: key
+
+    /** The ones on now, by short name: for the log, the approved apps' rows and the weekly reminder. */
+    fun switchesOn(): List<String> = synchronized(this) { WIDENING.filter { isOn(it.first) }.map { it.second } }
+
+    /** The ones TabDesk turned off when [pkg]'s signature changed, by short name, if the user hasn't set them since. */
+    fun switchedOffFor(pkg: String): List<String> = synchronized(this) { offForCert[pkg].orEmpty().map { shortName(it) } }
+
+    /** The user set [key] themselves: TabDesk no longer needs to say it turned it off. Called with the lock held. */
+    private fun userSet(key: String) {
+        for (pkg in offForCert.keys.toList()) {
+            val left = offForCert[pkg]!! - key
+            if (left.isEmpty()) offForCert.remove(pkg) else offForCert[pkg] = left
+        }
+    }
 
     /** Why [pkg] (signed with [cert]) can't use the tablet now, in the order the doc gives, or null if it can. */
     fun refusalFor(pkg: String, cert: String?): String? = synchronized(this) {
@@ -172,6 +201,7 @@ object Agent {
         synchronized(this) {
             val a = approvals.remove(pkg) ?: return
             asked[pkg] = Asked(pkg, a.cert, System.currentTimeMillis(), System.currentTimeMillis(), revoked = true)
+            offForCert.remove(pkg)
             if (controller == pkg) setControl(IDLE, "", null)
             save()
         }
@@ -198,12 +228,17 @@ object Agent {
     }
 
     fun setWake(on: Boolean) {
-        synchronized(this) { wake = on; save() }
+        synchronized(this) { wake = on; userSet("wake"); save() }
+        changed("")
+    }
+
+    fun setActing(on: Boolean) {
+        synchronized(this) { acting = on; userSet("acting"); save() }
         changed("")
     }
 
     fun setNameAll(on: Boolean) {
-        synchronized(this) { nameAll = on; save() }
+        synchronized(this) { nameAll = on; userSet("nameAll"); save() }
         changed("")
     }
 
@@ -214,11 +249,26 @@ object Agent {
 
     // ------------------------------------------------------------ apps asking
 
-    /** A caller that isn't approved connected: note that it asked, and tell the user at most once a day. */
+    /**
+     * A caller that isn't approved connected: note that it asked, and tell the user at most once a day. If it's an
+     * approved app whose signature changed, it's a different app now, so the switches that widen what the agent may
+     * do go off (Part 3), and its row says which were on.
+     */
     fun noteAsked(pkg: String, cert: String) {
         val now = System.currentTimeMillis()
+        var turnedOff = emptyList<String>()
         val notify = synchronized(this) {
-            if (approvals[pkg]?.cert == cert) return
+            val was = approvals[pkg]
+            if (was?.cert == cert) return
+            if (was != null) {
+                turnedOff = WIDENING.map { it.first }.filter { isOn(it) }
+                if (turnedOff.isNotEmpty()) {
+                    if ("acting" in turnedOff) acting = false
+                    if ("wake" in turnedOff) wake = false
+                    if ("nameAll" in turnedOff) nameAll = false
+                    offForCert[pkg] = (offForCert[pkg].orEmpty() + turnedOff).distinct()
+                }
+            }
             val before = asked[pkg]
             val due = before == null || now - before.notified >= ASKED_NOTE_EVERY_MS
             // Asking again brings a dismissed app back to "Apps that asked".
@@ -226,6 +276,8 @@ object Agent {
             save()
             due
         }
+        if (turnedOff.isNotEmpty()) AgentLog.add(pkg, "signature changed", null,
+            "switched off: ${turnedOff.joinToString { shortName(it) }}")
         if (notify) note(NOTE_ASKED, pkg, "${label(pkg)} wants to use this tablet",
             "Open TabDesk → Customize → Agent to approve it, or leave it.")
         changed("")
@@ -298,6 +350,22 @@ object Agent {
         changed("resumed")
     }
 
+    /**
+     * A real touch on the screen (the helper's watch, plan T11). While an app is using the tablet with an allowed app
+     * in front, control pauses: the running action is dropped, and calls are refused with "paused" until the user's
+     * next chat message (the caller's resume()) or Continue.
+     */
+    fun touched() {
+        val front = ScreenTools.frontTask()?.top
+        synchronized(this) {
+            if (control != ACTIVE || controller == null) return
+            if (front == null || !isAllowed(front)) return
+            main.removeCallbacks(goIdle)
+            setControl(PAUSED, "touched", controller)
+        }
+        changed("touched")
+    }
+
     private fun setControl(state: String, reason: String, who: String?) {
         control = state; controlReason = reason; controller = who
         if (state == IDLE) running = 0
@@ -320,8 +388,9 @@ object Agent {
             }
             if (warn.isNotEmpty()) save()
         }
+        val on = switchesOn().takeIf { it.isNotEmpty() }?.let { " Switched on for the agent: ${it.joinToString()}." } ?: ""
         for (pkg in warn) note(NOTE_LAPSING, pkg, "${label(pkg)} can use this tablet until tomorrow",
-            "Open TabDesk → Customize → Agent and tap Keep allowing to give it another week.")
+            "Open TabDesk → Customize → Agent and tap Keep allowing to give it another week.$on")
         scheduleCheck()
         if (lapsed || warn.isNotEmpty()) changed("")
     }
@@ -421,6 +490,7 @@ object Agent {
         enabled = o.optBoolean("enabled")
         nameAll = o.optBoolean("nameAll")
         wake = o.optBoolean("wake")
+        acting = o.optBoolean("acting")
         tabletName = o.optString("tablet").takeIf { it.isNotEmpty() }
         o.optJSONArray("approved")?.let { a -> for (i in 0 until a.length()) a.getJSONObject(i).let {
             approvals[it.getString("pkg")] = Approval(it.getString("pkg"), it.getString("cert"), it.getLong("since"), it.optBoolean("warned"))
@@ -430,17 +500,22 @@ object Agent {
                 it.optBoolean("dismissed"))
         } }
         o.optJSONArray("allowed")?.let { a -> for (i in 0 until a.length()) allowed += a.getString(i) }
+        o.optJSONObject("offForCert")?.let { m -> for (pkg in m.keys()) m.optJSONArray(pkg)?.let { a ->
+            offForCert[pkg] = (0 until a.length()).map { a.getString(it) }
+        } }
     }
 
     /** Called with the lock held. Written whole to a new file, then renamed over the old one. */
     private fun save() {
-        val o = JSONObject().put("enabled", enabled).put("nameAll", nameAll).put("wake", wake).put("tablet", tabletName ?: "")
+        val o = JSONObject().put("enabled", enabled).put("nameAll", nameAll).put("wake", wake).put("acting", acting)
+            .put("tablet", tabletName ?: "")
             .put("approved", JSONArray(approvals.values.map {
                 JSONObject().put("pkg", it.pkg).put("cert", it.cert).put("since", it.since).put("warned", it.warned) }))
             .put("asked", JSONArray(asked.values.map {
                 JSONObject().put("pkg", it.pkg).put("cert", it.cert).put("at", it.at).put("notified", it.notified).put("revoked", it.revoked)
                     .put("dismissed", it.dismissed) }))
             .put("allowed", JSONArray(allowed.toList()))
+            .put("offForCert", JSONObject().also { m -> offForCert.forEach { (pkg, keys) -> m.put(pkg, JSONArray(keys)) } })
         try {
             val tmp = File(file.path + ".new")
             tmp.writeText(o.toString())

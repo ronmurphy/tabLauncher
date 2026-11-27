@@ -11,5 +11,11 @@
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
         </activity>
+        <!-- An ordinary screen with things to tap and type into, for the acting tools' tests (tool list 2). -->
+        <activity
+            android:name=".Pad"
+            android:exported="true"
+            android:label="Pad (test)"
+            android:theme="@android:style/Theme.DeviceDefault.Light.NoActionBar" />
     </application>
 </manifest>

@@ -24,7 +24,8 @@ internal fun Page.agent() {
 
     section("Agent control")
     addNote("An app on this tablet, such as DroidACP, can let an AI agent use the tablet for you. The agent can " +
-        "read and open the apps you allow below, and see what’s running and how busy the tablet is. TabDesk checks " +
+        "read and open the apps you allow below, tap and type in them if you let it, and see what’s running and how " +
+        "busy the tablet is. TabDesk checks " +
         "every request against this page. The agent can never read or use TabDesk itself, Settings, System UI, the " +
         "keyboard, or the app that asked.")
     add(switchRow(act, "Let apps use this tablet", Agent.enabled) { Agent.setEnabled(it) })
@@ -41,16 +42,21 @@ internal fun Page.agent() {
     section("Approved apps")
     val approved = Agent.approvals()
     if (approved.isEmpty()) addNote("None.")
+    // Part 3: the switches that are on show where the user renews, and a signature change says which it switched off.
+    val on = Agent.switchesOn().takeIf { it.isNotEmpty() }?.let { " Switched on below: ${it.joinToString()}." } ?: ""
     for (a in approved) {
         val now = System.currentTimeMillis()
+        val off = Agent.switchedOffFor(a.pkg).takeIf { it.isNotEmpty() }?.let {
+            " When its signature changed, TabDesk switched off: ${it.joinToString()}. Switch them on again below if you still want them."
+        } ?: ""
         when {
             Agent.certOf(act.packageManager, a.pkg) != a.cert -> appRow(a.pkg,
                 "This copy isn’t signed like the one you approved (its signature changed). Approve it again only if " +
-                    "you installed it yourself.",
+                    "you installed it yourself.$off",
                 "Approve this copy" to { Agent.approve(a.pkg) }, "Revoke" to { Agent.revoke(a.pkg) })
-            now >= a.lapses -> appRow(a.pkg, "Its week ran out ${date(a.lapses)}. Keep allowing gives it another week.",
+            now >= a.lapses -> appRow(a.pkg, "Its week ran out ${date(a.lapses)}. Keep allowing gives it another week.$on$off",
                 "Keep allowing" to { Agent.renew(a.pkg) }, "Revoke" to { Agent.revoke(a.pkg) })
-            else -> appRow(a.pkg, "Allowed until ${date(a.lapses)}. TabDesk reminds you the day before.",
+            else -> appRow(a.pkg, "Allowed until ${date(a.lapses)}. TabDesk reminds you the day before.$on$off",
                 "Keep allowing" to { Agent.renew(a.pkg) }, "Revoke" to { Agent.revoke(a.pkg) })
         }
     }
@@ -65,6 +71,12 @@ internal fun Page.agent() {
     addNote("On: when the screen is off, the agent can switch it on to read an allowed app. It never gets past the " +
         "lock screen: while the tablet is locked, the agent waits for you.")
 
+    section("What the agent may do")
+    add(switchRow(act, "Let the agent tap and type", Agent.acting) { Agent.setActing(it) })
+    addNote("On: in the apps you allow above, the agent can tap, type, swipe, scroll, and press Back, Enter and Home, " +
+        "like a finger would. Never in a password field, and never where another window is over the spot. Touching " +
+        "the screen yourself while it works pauses it until your next message or Continue. Off: it can only read.")
+
     section("This tablet")
     noteWithButton("An agent knows this tablet as “${Agent.tablet()}”, so a second tablet can be told apart.",
         act.overlays.button("Rename", false) {
@@ -74,14 +86,15 @@ internal fun Page.agent() {
 
     section("Where it goes")
     addNote("What the agent reads goes to the AI’s company (Anthropic, for Claude) and into the chat’s history on " +
-        "the computer the agent runs on. TabDesk keeps only the log below: when, which app, what it asked and the " +
-        "answer’s outcome, never what was read.")
+        "the computer the agent runs on. TabDesk keeps only the log below: when, which app, what it asked, the " +
+        "answer’s outcome and which switches above were on, never what was read.")
 
     section("Recent activity")
     val log = AgentLog.recent(30)
     if (log.isEmpty()) addNote("Nothing yet.")
     for (e in log) add(TextView(act).label(pal.textDim, 12.5f).apply {
-        text = "${time(e.time)}   ${Agent.label(e.caller)} · ${e.tool}" + (e.front?.let { " · $it" } ?: "") + " · ${e.result}"
+        text = "${time(e.time)}   ${Agent.label(e.caller)} · ${e.tool}" + (e.front?.let { " · $it" } ?: "") + " · ${e.result}" +
+            (e.on?.let { " · on: $it" } ?: "")
         setPadding(act.dp(2), act.dp(3), 0, act.dp(3))
     })
 }

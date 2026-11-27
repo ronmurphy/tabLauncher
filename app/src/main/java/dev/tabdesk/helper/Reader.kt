@@ -62,7 +62,7 @@ internal object Reader {
      *      "more": true, "picture": {"jpeg": "<base64>", "width": …, "height": …, "of": [l, t, r, b]}}
      *     {"ok": false, "why": "front", "front": {"pkg": "…", "task": 12} | null}, or "why": "no_windows",
      *     "no_item", "unavailable" (UiAutomation can't connect: another tool is reading the screen), "failed".
-     * Each node: {"id", "class", "text", "desc", "hint", "showing_hint", "state_desc", "state": […], "bounds": [l, t, r, b],
+     * Each node: {"id", "fp" (see [fingerprint]), "class", "text", "desc", "hint", "showing_hint", "state_desc", "state": […], "bounds": [l, t, r, b],
      * "actions": […], "child_count", "children": […], "omitted": n}; empty ones are left out, and so are nodes that
      * aren't visible. An id is the window's place among the app's windows (top first), then each child's index.
      */
@@ -135,7 +135,7 @@ internal object Reader {
             "${w.root?.packageName} \"${w.title}\"${if (w.isFocused) " focused" else ""}${if (w.isActive) " active" else ""}"
     }
 
-    private fun notInFront(t: Helper.Task?) = JSONObject().put("ok", false).put("why", "front")
+    internal fun notInFront(t: Helper.Task?) = JSONObject().put("ok", false).put("why", "front")
         .put("front", t?.let { JSONObject().put("pkg", it.top).put("task", it.id) } ?: JSONObject.NULL)
 
     /** Stops reading: UiAutomation lets go, and apps no longer see accessibility as on (unless the user's is). */
@@ -165,7 +165,7 @@ internal object Reader {
         ready.await()
     }
 
-    private fun automation(): UiAutomation {
+    internal fun automation(): UiAutomation {
         lastUse = SystemClock.uptimeMillis()
         ua?.let { return it }
         mainLooper()
@@ -220,7 +220,7 @@ internal object Reader {
      * else by lying within the task's bounds. Its own package must match too, as a cross-check: that one comes from
      * the app, so it's never enough alone.
      */
-    private fun isOf(w: AccessibilityWindowInfo, pkg: String, task: Helper.Task): Boolean {
+    internal fun isOf(w: AccessibilityWindowInfo, pkg: String, task: Helper.Task): Boolean {
         if (w.type != AccessibilityWindowInfo.TYPE_APPLICATION) return false
         val id = try { taskIdMethod?.invoke(w) as? Int } catch (_: Throwable) { null }
         if (id != null && id != task.id) return false
@@ -228,9 +228,9 @@ internal object Reader {
         return w.root?.packageName?.toString() == pkg
     }
 
-    private fun bounds(w: AccessibilityWindowInfo) = Rect().also { w.getBoundsInScreen(it) }
+    internal fun bounds(w: AccessibilityWindowInfo) = Rect().also { w.getBoundsInScreen(it) }
 
-    private fun typeOf(w: AccessibilityWindowInfo) = when (w.type) {
+    internal fun typeOf(w: AccessibilityWindowInfo) = when (w.type) {
         AccessibilityWindowInfo.TYPE_APPLICATION -> "app"
         AccessibilityWindowInfo.TYPE_INPUT_METHOD -> "keyboard"
         AccessibilityWindowInfo.TYPE_SYSTEM -> "system"
@@ -240,7 +240,7 @@ internal object Reader {
     }
 
     /** The item at [id] ("window.child.child…") among the app's windows; null if there's none. */
-    private fun find(mine: List<AccessibilityWindowInfo>, id: String): AccessibilityNodeInfo? {
+    internal fun find(mine: List<AccessibilityWindowInfo>, id: String): AccessibilityNodeInfo? {
         val path = id.split('.').map { it.toIntOrNull() ?: return null }
         var n = mine.getOrNull(path[0])?.root ?: return null
         for (i in path.drop(1)) n = (if (i in 0 until n.childCount) n.getChild(i) else null) ?: return null
@@ -248,7 +248,7 @@ internal object Reader {
     }
 
     /** The real screen's size, as turned now. */
-    private fun screenSize(): Pair<Int, Int>? = try {
+    internal fun screenSize(): Pair<Int, Int>? = try {
         val dmg = Class.forName("android.hardware.display.DisplayManagerGlobal").getMethod("getInstance").invoke(null)!!
         val info = dmg.javaClass.getMethod("getDisplayInfo", Int::class.javaPrimitiveType).invoke(dmg, 0)!!
         (Helper.field(info, "logicalWidth") as Int) to (Helper.field(info, "logicalHeight") as Int)
@@ -256,9 +256,21 @@ internal object Reader {
 
     // ------------------------------------------------------------ items
 
+    /**
+     * What an item is, in a few characters: from its class, text (never a password field's), description and hint.
+     * An action names the item's id and this, from the read the agent saw; just before acting, the item at that id
+     * must still have it, or the answer is "stale".
+     */
+    internal fun fingerprint(n: AccessibilityNodeInfo): String {
+        val s = listOf(n.className, if (n.isPassword) "" else n.text, n.contentDescription,
+            if (Build.VERSION.SDK_INT >= 26) n.hintText else "").joinToString("\u0000") { it?.toString() ?: "" }
+        val d = java.security.MessageDigest.getInstance("SHA-256").digest(s.toByteArray())
+        return d.take(8).joinToString("") { "%02x".format(it) }
+    }
+
     private fun node(n: AccessibilityNodeInfo, id: String, depth: Int, budget: IntArray): JSONObject {
         budget[0]--
-        val o = JSONObject().put("id", id)
+        val o = JSONObject().put("id", id).put("fp", fingerprint(n))
         fun put(key: String, v: CharSequence?) { if (!v.isNullOrEmpty()) o.put(key, v.toString()) }
         put("class", n.className)
         val password = n.isPassword

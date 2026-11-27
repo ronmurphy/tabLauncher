@@ -233,6 +233,39 @@ internal object HelperClient {
     /** Control went idle or stopped: the helper stops reading the screen. */
     fun stopReading() = exec.execute { send("unread") }
 
+    private val actsWaiting = java.util.concurrent.ConcurrentHashMap<Int, (org.json.JSONObject?) -> Unit>()
+
+    /**
+     * For agent control: one action in the app in front (see the helper's Actor for [request] and the answer). Waits on
+     * the calling thread until [deadline] (wall time); null if the helper isn't connected or doesn't answer by then.
+     */
+    fun act(request: org.json.JSONObject, deadline: Long): org.json.JSONObject? {
+        if (!connected) return null
+        val req = readNext.incrementAndGet()
+        val latch = java.util.concurrent.CountDownLatch(1)
+        var got: org.json.JSONObject? = null
+        actsWaiting[req] = { got = it; latch.countDown() }
+        val b64 = Base64.encodeToString(request.toString().toByteArray(), Base64.NO_WRAP)
+        exec.execute { send("act $req $b64") }
+        try {
+            latch.await((deadline - System.currentTimeMillis()).coerceAtLeast(0), java.util.concurrent.TimeUnit.MILLISECONDS)
+        } finally { actsWaiting.remove(req) }
+        return got
+    }
+
+    /** Whether the helper should report real touches (while an agent is using the tablet). */
+    @Volatile private var watching = false
+
+    /** Called (on the helper link's thread) for each real touch on the screen while [watchTouches] is on. */
+    @Volatile var onTouched: (() -> Unit)? = null
+
+    /** While an agent is using the tablet, the helper says when a finger touches the screen (plan T11). */
+    fun watchTouches(on: Boolean) {
+        if (watching == on) return
+        watching = on
+        exec.execute { send(if (on) "watch 1" else "watch 0") }
+    }
+
     /** Wakes the screen, as the power button does ("Let the agent wake the screen"). */
     fun wake() = exec.execute { send("wake") }
 
@@ -331,6 +364,8 @@ internal object HelperClient {
                 sock.soTimeout = 0
                 out = o; connected = true; problem = null; changed()
                 Log.i(TAG, "connected")
+                // A new helper (or a restarted TabDesk) doesn't know an agent is using the tablet.
+                if (watching) exec.execute { send("watch 1") }
                 thread(name = "helper-link", isDaemon = true) { listen(sock, inp) }
                 return true
             } catch (_: Exception) {
@@ -370,6 +405,13 @@ internal object HelperClient {
                     val req = rest.substringBefore(' ').toIntOrNull() ?: continue
                     val r = try { org.json.JSONObject(rest.substringAfter(' ')) } catch (_: Exception) { null }
                     readsWaiting.remove(req)?.invoke(r)
+                } else if (line.startsWith("act ")) {
+                    val rest = line.substring(4)
+                    val req = rest.substringBefore(' ').toIntOrNull() ?: continue
+                    val r = try { org.json.JSONObject(rest.substringAfter(' ')) } catch (_: Exception) { null }
+                    actsWaiting.remove(req)?.invoke(r)
+                } else if (line == "touched") {
+                    try { onTouched?.invoke() } catch (_: Exception) {}
                 }
             }
         } catch (_: Exception) {
@@ -377,6 +419,7 @@ internal object HelperClient {
             try { sock.close() } catch (_: Exception) {}
             out = null; connected = false; tasks = emptyList(); overlaysHidden = false
             readsWaiting.keys.toList().forEach { readsWaiting.remove(it)?.invoke(null) }
+            actsWaiting.keys.toList().forEach { actsWaiting.remove(it)?.invoke(null) }
             Log.i(TAG, "helper connection ended")
             problem = "The helper stopped"
             changed()

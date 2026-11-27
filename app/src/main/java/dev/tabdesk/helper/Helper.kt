@@ -28,7 +28,8 @@ import kotlin.system.exitProcess
  * TabDesk talks to it over a socket on 127.0.0.1 ([HelperClient]): it must first send the token it started the
  * helper with, so no other app can use it. The helper then sends the task list whenever it changes, and takes a few
  * fixed commands (close, minimise, bring to front, move or resize a floating window, a preview picture, and for
- * agent control reading the app in front, see [Reader]); it never runs anything it's sent.
+ * agent control reading and acting in the app in front, see [Reader] and [Actor], and watching for a real touch,
+ * [Touches]); it never runs anything it's sent.
  */
 object Helper {
     private const val TAG = "TabDeskHelper"
@@ -56,6 +57,20 @@ object Helper {
                 println(r.toString(1))
                 Reader.disconnect()
                 exitProcess(0)
+            }
+            // One action, as TabDesk would ask it (see [Actor.act]): act '<JSON>'; "pkg" and "task" default to the app
+            // in front.
+            "act" -> {
+                val r = org.json.JSONObject(args.getOrElse(1) { "{}" })
+                Reader.front()?.let { f -> if (!r.has("pkg")) r.put("pkg", f.top); if (!r.has("task")) r.put("task", f.id) }
+                println(Actor.act(r).toString(1))
+                Reader.disconnect(); exitProcess(0)
+            }
+            // Real touches on the screen, as the agent's pause sees them, for [seconds].
+            "touches" -> {
+                Touches.start { println("touched ${System.currentTimeMillis()}") }
+                Thread.sleep((args.getOrNull(1)?.toLongOrNull() ?: 10) * 1000)
+                Touches.stop(); exitProcess(0)
             }
             "close" -> println("close $id: ${close(id)}")
             "min" -> println("min $id: ${minimise(id)}")
@@ -85,7 +100,7 @@ object Helper {
             "call" -> println("${args[1]}: ${call(atm, args[1], *args.drop(2).map { it.toInt() }.toTypedArray())}")
             "ints" -> println("${args[1]}: ${call(atm, args[1], args.drop(2).map { it.toInt() }.toIntArray())}")
             else -> println("usage: serve | tasks | usage [ms] | close|min|front <task id> | resize <task id> <l> <t> <r> <b> | " +
-                "shot <task id> [size] [file] | read [package|-] [id|-] [depth] [size] [file] | methods <word> | " +
+                "shot <task id> [size] [file] | read [package|-] [id|-] [depth] [size] [file] | act <JSON> | touches [s] | methods <word> | " +
                 "iface <class> [word] | call|ints <method> <numbers…>")
         }
     }
@@ -472,6 +487,21 @@ object Helper {
                             synchronized(lock) { write(out, "read $req $r") }
                         }
                     }
+                    // Acting for agent control (see [Actor]): "act <request> <base64 JSON>", answered
+                    // "act <request> <JSON>". Off this thread: a long tap or a scroll takes most of a second.
+                    "act" -> if (w.size >= 3) {
+                        val req = w[1]
+                        thread(name = "act", isDaemon = true) {
+                            val r = try {
+                                Actor.act(org.json.JSONObject(String(android.util.Base64.decode(w[2], android.util.Base64.NO_WRAP))))
+                            } catch (e: Throwable) { log("act", e); org.json.JSONObject().put("ok", false).put("why", "failed") }
+                            synchronized(lock) { write(out, "act $req $r") }
+                        }
+                    }
+                    // While an agent is using the tablet: "watch 1" reports each real touch on the screen as
+                    // "touched", until "watch 0" (see [Touches]).
+                    "watch" -> if (w.getOrNull(1) == "1") Touches.start { synchronized(lock) { write(out, "touched") } }
+                        else Touches.stop()
                     // Control went idle or was stopped: stop reading the screen (UiAutomation counts as an
                     // accessibility service while it's connected).
                     "unread" -> thread(isDaemon = true) { Reader.disconnect() }
@@ -482,6 +512,7 @@ object Helper {
                 }
             }
             synchronized(lock) { if (client === out) client = null }
+            Touches.stop()
             thread(isDaemon = true) { Reader.disconnect() }
         }
     }

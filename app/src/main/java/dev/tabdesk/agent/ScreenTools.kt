@@ -25,9 +25,12 @@ internal object ScreenTools {
     /** States that mean an item does something, so it's never folded into its only child. */
     private val ACTING = setOf("clickable", "long_clickable", "scrollable", "editable", "checked", "unchecked")
 
-    /** An item as the agent sees it, with its whole text. [parent]: the id of the item it's shown under. */
+    /**
+     * An item as the agent sees it, with its whole text. [parent]: the id of the item it's shown under. [fp]: the
+     * helper's fingerprint of it, which an action sends back so the helper can tell it's still the same item.
+     */
     class Item(val id: String, val role: String, val label: String?, val value: String?, val state: List<String>,
-               val children: List<Item>, val omitted: Int, var parent: String?)
+               val children: List<Item>, val omitted: Int, var parent: String?, val fp: String = "")
 
     /** The last read, per calling app. */
     private class Read(val task: Int, val pkg: String, val items: MutableMap<String, Item>)
@@ -164,10 +167,86 @@ internal object ScreenTools {
         return Tools.ok(Tools.text(SENTENCE), Tools.text(o.toString())) to name
     }
 
+    // ------------------------------------------------------------ locators (tool list 2)
+
+    /** The item an action is for, as the agent saw it: its id, and the helper's fingerprint of it. */
+    class Target(val item: Item)
+
+    /**
+     * One item, by a locator (Part 2's "Locators"): {"id": "0.3.1"} from the last read, or {"content_contains": "Roll"}
+     * optionally with "role", which reads the screen again (that read becomes the last one). Exactly one item must
+     * match. Answers the target, or the error to send.
+     */
+    fun locate(ctx: Context, caller: String, task: HelperClient.Task, loc: Any?, deadline: Long): Pair<Target?, JSONObject?> {
+        val o = loc as? JSONObject ?: return null to Tools.error("bad_arguments",
+            "A target is an object: {\"id\": \"0.3.1\"}, or {\"content_contains\": \"Roll\"} with an optional \"role\".")
+        o.keys().asSequence().firstOrNull { it !in setOf("id", "content_contains", "role") }?.let {
+            return null to Tools.error("bad_arguments", "A target takes id, or content_contains and role; not \"${it.take(40)}\".")
+        }
+        val id = o.opt("id")
+        if (id != null) {
+            if (o.has("content_contains") || o.has("role")) return null to Tools.error("bad_arguments", "A target has an id or content_contains, not both.")
+            val sid = id as? String ?: return null to Tools.error("bad_arguments", "id is an item's id from screen, a string such as \"0.3.1\".")
+            val last = reads[caller]
+            if (last != null && (last.task != task.id || last.pkg != task.top))
+                return null to Tools.error("stale", "The app in front isn't the one last read. Read the screen again.")
+            val was = if (ID.matches(sid)) last?.items?.get(sid) else null
+            return if (was == null) null to notFound(sid, last) else Target(was) to null
+        }
+        val contains = o.opt("content_contains")?.let { it as? String ?: return null to Tools.error("bad_arguments", "content_contains is a string.") }
+        val role = o.opt("role")?.let { it as? String ?: return null to Tools.error("bad_arguments", "role is a string, such as \"button\".") }
+        if (contains.isNullOrEmpty() && role.isNullOrEmpty()) return null to Tools.error("bad_arguments", "A target needs an id or content_contains.")
+        val (matches, refusal) = find(ctx, caller, task, contains, role, deadline)
+        if (refusal != null) return null to refusal
+        return when (matches.size) {
+            0 -> null to Tools.error("not_found", "No item matches that on screen. Read the screen to see what's there.")
+            1 -> Target(matches[0]) to null
+            else -> null to Tools.error("ambiguous", "").put("content", JSONArray()
+                .put(Tools.text(SENTENCE))
+                .put(Tools.text("${matches.size} items match; use one's id, or say more (role). The first:\n" +
+                    matches.take(10).joinToString("\n") { describe(it) })))
+        }
+    }
+
+    /** A fresh read of the app in front, kept as [caller]'s last read, and its items matching [contains] and [role]. */
+    fun find(ctx: Context, caller: String, task: HelperClient.Task, contains: String?, role: String?, deadline: Long): Pair<List<Item>, JSONObject?> {
+        val r = HelperClient.read(task.top, task.id, null, -1, 0, deadline) ?: return emptyList<Item>() to noAnswer()
+        failure(ctx, r)?.let { return emptyList<Item>() to it }
+        val raw = r.getJSONArray("items")
+        val tree = (0 until raw.length()).mapNotNull { convert(raw.getJSONObject(it), null) }
+        val items = HashMap<String, Item>()
+        fun remember(i: Item) { items[i.id] = i; i.children.forEach { remember(it) } }
+        tree.forEach { remember(it) }
+        reads[caller] = Read(task.id, task.top, items)
+        val matches = ArrayList<Item>()
+        fun scan(i: Item) {
+            if ((role.isNullOrEmpty() || i.role.equals(role, true)) && (contains.isNullOrEmpty() ||
+                    i.label?.contains(contains, true) == true || i.value?.contains(contains, true) == true)) matches += i
+            i.children.forEach { scan(it) }
+        }
+        tree.forEach { scan(it) }
+        return matches to null
+    }
+
+    /** "0.3.1 button label "Roll d20"", for lists of items (from the screen, so after the sentence). */
+    fun describe(i: Item) = listOfNotNull(i.id, i.role, i.label?.let { "label \"${cut(it)}\"" }, i.value?.let { "value \"${cut(it)}\"" })
+        .joinToString(" ")
+
+    /** An item named in an answer: "Roll d20" (button), by its label, else its value, else its role. */
+    fun named(i: Item): String = (i.label ?: i.value)?.let { "\"${cut(it)}\" (${i.role})" } ?: "the ${i.role} ${i.id}"
+
+    /** A window the helper named ([by]: its type, package, title, bounds), as Part 2's naming rule allows. */
+    fun windowName(ctx: Context, by: JSONObject?, screen: Pair<Int, Int>?): String {
+        if (by == null) return "another window"
+        val r = JSONObject().put("covers", JSONArray().put(by))
+        if (screen != null) r.put("screen", JSONArray(listOf(screen.first, screen.second)))
+        return covers(ctx, r).firstOrNull() ?: "the system's bar along the screen's edge"
+    }
+
     // ------------------------------------------------------------ checks
 
     /** Limits 6 and 7 for a read: the task in front, or (null and) the refusal with what the log names. */
-    private fun readable(ctx: Context): Pair<HelperClient.Task?, Pair<JSONObject, String?>> {
+    fun readable(ctx: Context): Pair<HelperClient.Task?, Pair<JSONObject, String?>> {
         screenRefusal(ctx)?.let { return null to (it to null) }
         val task = frontTask()
         frontRefusal(ctx, task)?.let {
@@ -183,7 +262,7 @@ internal object ScreenTools {
         return frontRefusal(ctx, now) ?: changed()
     }
 
-    private fun failure(ctx: Context, r: JSONObject): JSONObject? {
+    fun failure(ctx: Context, r: JSONObject): JSONObject? {
         if (r.optBoolean("ok")) return null
         return when (r.optString("why")) {
             "front" -> frontRefusal(ctx, frontTask()) ?: changed()
@@ -195,12 +274,12 @@ internal object ScreenTools {
         }
     }
 
-    private fun noAnswer() = if (HelperClient.connected) Tools.refused("timed_out", "The tablet didn't answer in time.")
+    fun noAnswer() = if (HelperClient.connected) Tools.refused("timed_out", "The tablet didn't answer in time.")
         else Tools.refused("helper_not_running", "TabDesk's helper isn't running.")
 
-    private fun changed() = Tools.error("stale", "The app in front changed while the screen was read. Read it again.")
+    fun changed() = Tools.error("stale", "The app in front changed while the screen was read. Read it again.")
 
-    private fun stale() = Tools.error("stale", "The item with that id has changed since the screen was read. Read it again.")
+    fun stale() = Tools.error("stale", "The item with that id has changed since the screen was read. Read it again.")
 
     private fun bad(text: String) = Tools.error("bad_arguments", text) to null
 
@@ -237,7 +316,7 @@ internal object ScreenTools {
             if (children.isEmpty()) return null
             if (children.size == 1) return children[0].also { it.parent = parent }
         }
-        return Item(base.id, base.role, base.label, base.value, base.state, children, omitted, parent)
+        return Item(base.id, base.role, base.label, base.value, base.state, children, omitted, parent, base.fp)
     }
 
     /** One node's id, role, label, value and state. */
@@ -247,7 +326,7 @@ internal object ScreenTools {
         val label = str("desc") ?: str("hint")
         val text = if (n.optBoolean("showing_hint")) null else str("text")
         val value = if ("password" in state) null else (text ?: str("state_desc"))?.takeIf { it != label }
-        return Item(n.getString("id"), roleOf(str("class"), state), label, value, state, emptyList(), 0, null)
+        return Item(n.getString("id"), roleOf(str("class"), state), label, value, state, emptyList(), 0, null, n.optString("fp"))
     }
 
     private fun roleOf(cls: String?, state: List<String>): String {
@@ -269,10 +348,10 @@ internal object ScreenTools {
         }
     }
 
-    private fun cut(s: String) = if (s.length > CUT) s.take(CUT) + " […]" else s
+    fun cut(s: String) = if (s.length > CUT) s.take(CUT) + " […]" else s
 
     /** An item's own fields, text cut to 100 characters. */
-    private fun flat(i: Item): JSONObject {
+    fun flat(i: Item): JSONObject {
         val o = JSONObject().put("id", i.id).put("role", i.role)
         i.label?.let { o.put("label", cut(it)) }
         i.value?.let { o.put("value", cut(it)) }
