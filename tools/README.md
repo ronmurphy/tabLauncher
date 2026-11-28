@@ -24,10 +24,20 @@ Run them from bash (zsh doesn't split `$var` into words the way these expect).
 ## emulator/: testing a fresh install in Android's emulator
 
 Two emulators are set up (in `~/.android/avd`): `TabDesk_A16` (Android 16 with Play Store, at the OnePlus Pad's
-2800 × 2000) and `TabDesk_A12` (Android 12, the oldest TabDesk supports). Start one without a window, then drive
-it over adb as `emulator-5554`:
+2800 × 2000) and `TabDesk_A12` (Android 12, the oldest TabDesk supports).
+
+**Starting and stopping:** on the development laptop, the `tabdesk-emu` script (in `~/.local/bin`, not in this repo)
+does it. `tabdesk-emu start A16` (or `A12`) starts one without a window and waits until it has booted, and
+`tabdesk-emu stop` shuts them down (`status`, `keep` and the rest: `tabdesk-emu --help`). A16 is always
+`emulator-5554`, A12 `emulator-5556`. A systemd timer shuts down any emulator after 2 hours with no adb use, however
+it was started, so none is left running by mistake (`adb emu` console commands don't count as use: run
+`tabdesk-emu keep` before a long stretch of only those). Without the script, start one by hand with the same flags:
 
     ~/Android/Sdk/emulator/emulator -avd TabDesk_A16 -no-window -no-boot-anim -no-audio -gpu swiftshader_indirect -no-snapshot-save &
+
+Then drive it over adb:
+
+    tabdesk-emu start A16
     adb -s emulator-5554 install app/build/outputs/apk/release/app-release.apk
     tools/emulator/shot.sh /tmp/shot.png        # half-size screenshot: tap at twice what you see
     tools/emulator/find.sh "Build number"       # where some text is on screen, in real pixels
@@ -41,12 +51,13 @@ it over adb as `emulator-5554`:
                                                 # a real touch at 1400, 900 (down, then up), e.g. to pause the agent;
                                                 # `adb shell input tap` is injected, so the pause doesn't see it
     adb -s emulator-5554 emu avd snapshot save default_boot   # keep what you set up (see below)
-    adb -s emulator-5554 emu kill               # shut it down
+    tabdesk-emu stop A16                        # shut it down (or: adb -s emulator-5554 emu kill)
 
 **Snapshots:** a normal start loads the quick-boot snapshot `default_boot`, which puts the disk back as it was when
 that snapshot was saved. With `-no-snapshot-save` nothing new is saved, so whatever you installed or set since is gone
-at the next start. Save the snapshot before shutting down, as above, or start with `-no-snapshot-load` (a cold boot
-onto the current disk). A snapshot loads only with the GPU mode it was saved with, so always start with
+at the next start, and that includes the automatic shutdown after 2 hours. Save the snapshot before shutting down,
+as above, or start with `-no-snapshot-load` (a cold boot onto the current disk: `tabdesk-emu start A16 --
+-no-snapshot-load`). A snapshot loads only with the GPU mode it was saved with, so always start with
 `-gpu swiftshader_indirect` as above. Both were saved 2026-11-26 08:58 with the `agent-control` build after the code
 review (532ae19). TabDesk_A16: both test callers approved, Clock and See-through allowed in Customize → Agent.
 TabDesk_A12: the test caller approved; its helper isn't paired, so test the reader there with `helper.sh read`.
