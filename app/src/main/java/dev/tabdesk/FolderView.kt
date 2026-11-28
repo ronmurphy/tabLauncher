@@ -343,6 +343,8 @@ class FolderPanel(private val act: HomeActivity, val item: DesktopItem, private 
     private var highlight = false
     private val tileIcon = dp(48)
     private val refresh = Runnable { load() }
+    /** The title row's buttons; hidden when the panel is too narrow to show the title beside them. */
+    private val actions = ArrayList<View>()
 
     init {
         orientation = VERTICAL
@@ -368,6 +370,18 @@ class FolderPanel(private val act: HomeActivity, val item: DesktopItem, private 
             setPadding(dp(8), 0, dp(8), 0)
         }
         head.addView(title, llp(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f))
+        // On the desktop panel: open the folder in TabDesk Files, and show the Folder View as an icon (both in its
+        // menu too). The popup is the icon's already, and the dock has its own menu.
+        if (!popup && !inDock) {
+            fun headButton(symbol: String, words: String, click: () -> Unit) = TextView(act).apply {
+                typeface = Icons.symbolFont(act, fill = false); textSize = 20f; setTextColor(pal.text); gravity = Gravity.CENTER
+                text = Icons.symbol(act, symbol)?.text ?: words.take(1)
+                background = rippleBg(pal.ripple, dpf(16)); contentDescription = words; tooltipText = words
+                setOnClickListener { click() }
+            }.also { head.addView(it, llp(dp(36), dp(36))); actions += it }
+            headButton("open_in_new", "Open in TabDesk Files") { act.openInFiles(dir) }
+            headButton("collapse_content", "Show as an icon") { act.showFolderViewAsIcon(item) }
+        }
         // Hold the title row (or right-click it) for the Folder View's menu. On the desktop, hold and move it to move
         // the panel; the empty space in the grid and the panel's edges do the same, so it's easy to grab.
         val move: ((View, Float, Float) -> Unit)? = if (popup || inDock) null
@@ -407,6 +421,12 @@ class FolderPanel(private val act: HomeActivity, val item: DesktopItem, private 
     }
 
     private var emptyDown = false
+
+    override fun onSizeChanged(w: Int, h: Int, oldw: Int, oldh: Int) {
+        super.onSizeChanged(w, h, oldw, oldh)
+        val show = w >= dp(200)
+        if (actions.any { (it.visibility == VISIBLE) != show }) post { actions.forEach { it.visibility = if (show) VISIBLE else GONE } }
+    }
 
     override fun onAttachedToWindow() {
         super.onAttachedToWindow()
@@ -833,6 +853,18 @@ fun TabActivity.confirmDelete(files: List<File>, done: () -> Unit) {
     overlays.show(card, dim = true)
 }
 
+/** A desktop Folder View panel becomes one icon, remembering its size for [showFolderViewAsPanel]. */
+fun HomeActivity.showFolderViewAsIcon(item: DesktopItem) {
+    overlays.dismissAll()
+    item.panelX = item.spanX; item.panelY = item.spanY
+    desktop.setFolderViewSize(item, 1, 1)
+}
+
+/** A desktop Folder View icon becomes a panel again, at the size it had (4 × 3 the first time). */
+fun HomeActivity.showFolderViewAsPanel(item: DesktopItem) =
+    if (item.panelX > 0 && item.panelY > 0) desktop.setFolderViewSize(item, item.panelX, item.panelY)
+    else desktop.setFolderViewSize(item, 4, 3)
+
 /** The Folder View's own menu (its icon, title row, or empty space in it). */
 fun HomeActivity.folderViewMenu(item: DesktopItem, anchor: View, panel: FolderPanel? = null, x: Float = -1f, y: Float = -1f) {
     val list = ArrayList<MenuEntry>()
@@ -869,9 +901,9 @@ fun HomeActivity.folderViewMenu(item: DesktopItem, anchor: View, panel: FolderPa
     }
     if (asPanel) {
         list += MenuEntry("Resize", G.RESIZE) { desktop.startResize(item) }
-        list += MenuEntry("Show as an icon", G.MINIMISE) { desktop.setFolderViewSize(item, 1, 1) }
+        list += MenuEntry("Show as an icon", G.MINIMISE) { showFolderViewAsIcon(item) }
     } else if (panel == null) {
-        list += MenuEntry("Show as a panel", G.WINDOW) { desktop.setFolderViewSize(item, 4, 3) }
+        list += MenuEntry("Show as a panel", G.WINDOW) { showFolderViewAsPanel(item) }
     }
     list += MenuEntry("Move to the dock", G.WIDGETS) { dock.takeFromDesktop(item, desktop.viewOf(item)?.height?.takeIf { asPanel } ?: dp(300)) }
     list += MenuEntry("Remove from desktop", G.CLOSE) {
