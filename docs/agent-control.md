@@ -404,7 +404,7 @@ can say who the agent is in each `tools/call`'s `params._meta`:
     "agent": "claude-code-acp",
     "model": "Opus 5.5",
     "person": { "skin": "medium", "hair": "swoop", "haircolor": "teal", "accessories": ["glasses", "headphones"],
-                "letter": "T", "shirt": "yellow" }
+                "letter": "T", "shirt": "yellow", "bottom": "shorts", "bottomcolor": "denim" }
   }
 }
 ```
@@ -416,7 +416,10 @@ can say who the agent is in each `tools/call`'s `params._meta`:
 - **`model`**: shown in the person's tooltip and to TalkBack.
 - **`person`**: the look the agent chose, exactly as PlasmaLLM sends it to DroidACP as a tab's `person` (companion
   protocol 11). A part it didn't choose, or an id TabDesk's copy of `sprites.txt` doesn't have, is drawn as the
-  default's; `"letter": "none"` is a plain shirt, and `"shirt": "agent"` is the agent's colours.
+  default's; `"letter": "none"` is a plain shirt, and `"shirt": "agent"` is the agent's colours. `bottom` (pants,
+  shorts, skirt or dress) and `bottomcolor` came with PlasmaLLM's companion protocol 20, along with five holiday
+  accessories; a dress is the shirt's colour. An older TabDesk draws navy pants and leaves out accessories it
+  doesn't know.
 
 All of it is optional, and each call says it afresh: a call without it is drawn as a default look for the approved
 app, with its first letter. It's only drawn, never trusted: it decides nothing, the texts are cut short (32 or 40

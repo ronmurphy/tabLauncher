@@ -11,20 +11,25 @@
 #   H h     hair and its shade (from `option haircolor`)
 #   T t     shirt and its shade (the chosen `option shirt`, else the agent's colours from
 #           `agent`: one colour, or stripes row by row)
+#   J j     pants, shorts or skirt and its shade (the chosen `option bottomcolor`; a dress,
+#           `bottom` with `color shirt`, is the shirt's T t)
 #   L       the letter on the shirt (white or dark, whichever shows on the shirt)
 #   A a     an accessory's own colours (its `A` and `a` lines)
 #
 # Every pose is 32 x 32 pixels, drawn in the order of its lines (a grid ends at a blank line):
-#   use <name> <x> <y>     a shared part
+#   use <name> <x> <y>     a shared part (or the person's `bottom`'s grid of that name)
 #   grid base|over <x> <y> pixels of its own
 #   @head                  the face, eyes, hair and accessories, at the pose's `head x y`
 #                          (a long hair's back is drawn first of all, under everything)
 #   letter <x> <y>         the shirt's letter, 3 x 5
 #   effect <name> <x> <y>  a bubble or sign
-# `eyes open|closed|down` picks the eyes; `head none` draws no person (an empty chair).
+# `eyes open|closed|down` picks the eyes; `head none` draws no person (an empty chair,
+# the break room).
 #
 # The options are what an agent picks once, for its own Pixel Person: skin, hair,
-# haircolor, accessories (up to 2), a letter (A-Z, 0-9 or none) and a shirt colour. The
+# haircolor, accessories (up to 2), a letter (A-Z, 0-9 or none), a shirt colour, and a
+# bottom (pants, shorts, skirt or dress) with its colour. A `bottomcolor` line may give
+# its shade after the colour; the other shades are worked out from the colour. The
 # agent's own colours (`agent <id>`) are drawn as a bar under the person, so people from
 # different agents stay apart whatever they wear: 22 x 4 pixels, outlined in `k` (in `G`
 # when its colours are as dark as that, so it shows on a dark screen) with its corners left
@@ -97,6 +102,28 @@ brown 7A5236
 grey 8C919B
 black 2E2F33
 white EEEEEE
+
+# The colour of a person's pants, shorts or skirt (J j). The first is the default: the
+# navy everyone wore before there was a choice, with its own shade. A dress is the shirt's.
+option bottomcolor
+navy 3A4766 2C364F
+red D64545
+orange E8833A
+yellow E8C547
+lime 9BCB3C
+green 3F9A55
+teal 2BA6A0
+cyan 3CB4D8
+blue 3F7BD9
+purple 7A4FB0
+pink E77FB3
+maroon 8E2B3A
+brown 7A5236
+grey 8C919B
+black 2E2F33
+white EEEEEE
+denim 4A6FA5
+khaki B59C6B
 
 # Each agent's colours (from the agent's own name in ACP's agentInfo): its bar, and its
 # shirt until it chooses one (stripes run row by row there).
@@ -396,6 +423,153 @@ kAaAaAaAaAak
 .........kak
 .........kk.
 
+# Holiday ones. A standing head has only 3 rows above it in the 32 x 32, so hats stay low.
+accessory santahat
+A D93A3F
+a A8252B
+grid front -1 -3
+....kkkkkkk.....
+..kkAAAAAAAkkk..
+.kAAAAAAAAAAaAkk
+kAAAAAAAAAAAkkWWk
+kWWWWWWWWWWWWkWWk
+kwwwwwwwwwwwwkkk.
+.kkkkkkkkkkkk....
+
+accessory antlers
+A 8A5A33
+a 63401F
+grid front -4 -3
+kAk.kAk......kAk.kAk
+.kAkAk........kAkAk.
+..kAaAk......kAaAk..
+....kaAk....kAak....
+
+accessory earmuffs
+A D93A3F
+a F4F4F4
+grid front -4 -2
+.....kkkkkkkkkk.....
+....kAAAAAAAAAAk....
+...kAk........kAk...
+..kAk..........kAk..
+.kkkk..........kkkk.
+kaaak..........kaaak
+kaWak..........kaWak
+kaaak..........kaaak
+kwwwk..........kwwwk
+.kkk............kkk.
+
+accessory partyhat
+A 3CB4D8
+a F5C542
+grid front 1 -3
+...kWWk...
+...kAAk...
+..kaaaak..
+.kAAAAAAk.
+kaaaaaaaak
+
+accessory rednose
+A E5484D
+a FF9A9A
+grid front 5 6
+aA
+AA
+
+# What a person wears below the shirt. A bottom's grids stand in for the shared parts they
+# are named after (`grid legs-stand 0 0` for `use legs-stand`), at the same place plus the
+# grid's x y; the parts it doesn't name are drawn as they are. Its colours are J j, the
+# chosen `option bottomcolor`, or the shirt's (T t) with `color shirt`. The first is the
+# default.
+
+bottom pants
+
+bottom shorts
+grid legs-stand 0 0
+...kJJJJJJk...
+...kjjkkjjk...
+...kSSkkSSk...
+...kSSkkSSk...
+..kBBBkkBBBk..
+..kkkk..kkkk..
+
+grid legs-sit 0 0
+..kJJJJJJJJk..
+..kjjjjjjjjk..
+...kSSkkSSk...
+...kSSkkSSk...
+..kBBBkkBBBk..
+..kkkk..kkkk..
+
+grid mini 0 0
+.kkkkk.
+kHHHHHk
+kSESESk
+kSSSSSk
+.kTTTk.
+kTTTTTk
+kJJJJJk
+.kSkSk.
+.kk.kk.
+
+bottom skirt
+grid legs-stand 0 0
+...kJJJJJJk...
+..kjjjjjjjjk..
+..kkSSkkSSkk..
+...kSSkkSSk...
+..kBBBkkBBBk..
+..kkkk..kkkk..
+
+grid legs-sit 0 0
+..kJJJJJJJJk..
+.kjjjjjjjjjjk.
+.kkkSSkkSSkkk.
+...kSSkkSSk...
+..kBBBkkBBBk..
+..kkkk..kkkk..
+
+grid mini 0 0
+.kkkkk.
+kHHHHHk
+kSESESk
+kSSSSSk
+.kTTTk.
+kTTTTTk
+kJJJJJk
+.kSkSk.
+.kk.kk.
+
+bottom dress
+color shirt
+grid legs-stand 0 0
+...kJJJJJJk...
+..kJJJJJJJJk..
+..kjjjjjjjjk..
+..kkSSkkSSkk..
+..kBBBkkBBBk..
+..kkkk..kkkk..
+
+grid legs-sit 0 0
+..kJJJJJJJJk..
+..kJJJJJJJJk..
+.kjjjjjjjjjjk.
+.kkkSSkkSSkkk.
+..kBBBkkBBBk..
+..kkkk..kkkk..
+
+grid mini 0 0
+.kkkkk.
+kHHHHHk
+kSESESk
+kSSSSSk
+.kTTTk.
+kTTTTTk
+kJJJJJk
+.kSkSk.
+.kk.kk.
+
 # Shared parts. A standing person: head at 10 3, torso at 9 13, legs at 9 21.
 # A seated one: chair at 8 7, head at 10 4, torso at 9 14, legs at 9 22.
 
@@ -408,7 +582,7 @@ kTTkTTTTTTkTTk
 kTTkTTTTTTkTTk
 kSSktTTTTtkSSk
 kSSkttttttkSSk
-.kkkPPPPPPkkk.
+.kkkJJJJJJkkk.
 
 part torso-front
 grid base 0 0
@@ -419,7 +593,7 @@ kTTkTTTTTTkTTk
 kTTkTTTTTTkTTk
 kTTktTTTTtkTTk
 kTTkttttttkTTk
-.kkkPPPPPPkkk.
+.kkkJJJJJJkkk.
 
 part torso-raise-right
 grid base 0 0
@@ -438,7 +612,7 @@ kTTkTTTTTTTTk...
 kTTkTTTTTTTTk...
 kSSktTTTTTTtk...
 kSSkttttttttk...
-.kkkPPPPPPkkk...
+.kkkJJJJJJkkk...
 
 part torso-raise-both
 grid base 0 0
@@ -457,7 +631,7 @@ kTTTTTTTTTTTTTTTTTTk
 ...kTTTTTTTTTTTTk...
 ...ktTTTTTTTTTTtk...
 ...kttttttttttttk...
-...kkkPPPPPPkkk.....
+...kkkJJJJJJkkk.....
 
 part torso-point-left
 grid base 0 0
@@ -468,23 +642,23 @@ kSSkkkkkkTkTTTTTkTTk
 .kk.....kTkTTTTTkTTk
 ........kTktTTTtkSSk
 ........kTkttttkkSSk
-.........kkkPPPPPkkk.
+.........kkkJJJJJkkk.
 
 part legs-stand
 grid base 0 0
-...kPPPPPPk...
-...kPPkkPPk...
-...kPPkkPPk...
-...kPPkkPPk...
+...kJJJJJJk...
+...kJJkkJJk...
+...kJJkkJJk...
+...kJJkkJJk...
 ..kBBBkkBBBk..
 ..kkkk..kkkk..
 
 part legs-sit
 grid base 0 0
-..kPPPPPPPPk..
-..kPPPPPPPPk..
-...kPPkkPPk...
-...kPPkkPPk...
+..kJJJJJJJJk..
+..kJJJJJJJJk..
+...kJJkkJJk...
+...kJJkkJJk...
 ..kBBBkkBBBk..
 ..kkkk..kkkk..
 
@@ -503,7 +677,7 @@ kTTTTTTTTTTTTTTTTTTk
 ...kTTTTTTTTTTTTk...
 ...ktTTTTTTTTTTtk...
 ...kttttttttttttk...
-...kkkPPPPPPkkk.....
+...kkkJJJJJJkkk.....
 
 part chair
 grid base 0 0
@@ -540,7 +714,7 @@ kSSSSSk
 .kTTTk.
 kTTTTTk
 kTTTTTk
-.kPkPk.
+.kJkJk.
 .kk.kk.
 
 # Poses, one per thing an agent does.
@@ -734,6 +908,44 @@ effect drop 22 4
 pose empty
 head none
 use chair 8 7
+
+# The break room at the end of the strip (PlasmaLLM's companion protocol 19), not an
+# activity's pose: a couch, a picture on the wall, a mug on a side table.
+pose room
+head none
+grid base 0 0
+................................
+................................
+......nnnnnnnnnn................
+......nUUUUUUUUn................
+......nUUUVUUYUn................
+......nUUVVVUUUn................
+......nVVVVVVVVn................
+......nVVVVVVVVn................
+......nnnnnnnnnn................
+................................
+...kkkkkkkkkkkkkkkkk......w.....
+..kUUUUUUUUUUUUUUUUUk......w....
+..kuuuuuuuupuuuuuuuuk.....w.....
+..kuuuuuuuupuuuuuuuuk......w....
+.kkkkuuuuuupuuuuuukkkk..........
+kUUUkuuuuuupuuuuuukUUUk..kkkkk..
+kuuukuuuuuupuuuuuukuuuk..kRRQkkk
+kuuukuuuuuupuuuuuukuuuk..kRRQk.k
+kuuukuuuuuupuuuuuukuuuk..kRRQkkk
+kuuukkkkkkkkkkkkkkkuuuk..kQQQk..
+kuuukUUUUUUkUUUUUUkuuukkkkkkkkkk
+kuuukuuuuuukuuuuuukuuukkNNNNNNNk
+kuuukuuuuuukuuuuuukuuukkkkkkkkkk
+kkkkkkkkkkkkkkkkkkkkkkk.n.....n.
+kkPPPPPPPPPPPPPPPPPPPkk.n.....n.
+.kpppppppppppppppppppk..n.....n.
+.kkkkkkkkkkkkkkkkkkkkk..n.....n.
+..nn...............nn...n.....n.
+..nn...............nn...n.....n.
+................................
+................................
+................................
 
 # Bubbles and signs.
 

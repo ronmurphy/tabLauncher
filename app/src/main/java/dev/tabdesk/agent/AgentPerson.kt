@@ -31,7 +31,7 @@ object AgentPerson {
     val listeners = CopyOnWriteArrayList<() -> Unit>()
     private val main = Handler(Looper.getMainLooper())
 
-    private val OPTIONS = listOf("skin", "hair", "haircolor", "letter", "shirt")
+    private val OPTIONS = listOf("skin", "hair", "haircolor", "letter", "shirt", "bottom", "bottomcolor")
 
     /** A call from [pkg] passed its checks and starts. */
     fun began(pkg: String, tool: String, who: Who?) {
@@ -120,6 +120,7 @@ object AgentPerson {
         val p = w?.person ?: return default
         fun opt(k: String) = (p.opt(k) as? String)?.takeIf { it.isNotBlank() }
         val acc = p.optJSONArray("accessories")?.let { a -> (0 until a.length()).mapNotNull { a.opt(it) as? String } }.orEmpty()
-        return people.chosen(default, opt("skin"), opt("hair"), opt("haircolor"), acc, opt("letter")?.singleOrNull(), opt("shirt"))
+        return people.chosen(default, opt("skin"), opt("hair"), opt("haircolor"), acc, opt("letter")?.singleOrNull(), opt("shirt"),
+            opt("bottom"), opt("bottomcolor"))
     }
 }

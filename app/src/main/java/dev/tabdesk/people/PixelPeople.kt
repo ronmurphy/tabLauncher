@@ -1,6 +1,6 @@
 package dev.tabdesk.people
 
-// Ported from DroidACP's core/src/main/kotlin/com/droidacp/core/people/PixelPeople.kt (0eaed2e), with
+// Ported from DroidACP's core/src/main/kotlin/com/droidacp/core/people/PixelPeople.kt (d675b50), with
 // assets/people/sprites.txt copied from the same commit. Both apps draw the same people from the same file, so keep
 // this reader in step with DroidACP's: change it there first, then copy it here. Only the loading differs (an
 // Android asset here, a Java resource there).
@@ -8,9 +8,10 @@ package dev.tabdesk.people
 /**
  * One agent's look, as it chose it once (or a default until it does): the option ids of
  * `sprites.txt`. [letter] goes on the shirt (A-Z, 0-9), or none; [shirt] is a chosen colour,
- * or null for the agent's own. [agent] isn't chosen: it's whose colours the bar under the
- * person has ([PixelPeople.agentFor], [PixelPeople.bar]), so people from different agents
- * stay apart.
+ * or null for the agent's own. [bottom] is pants, shorts, a skirt or a dress, in
+ * [bottomColor] (a dress is the shirt's colour). [agent] isn't chosen: it's whose colours the
+ * bar under the person has ([PixelPeople.agentFor], [PixelPeople.bar]), so people from
+ * different agents stay apart.
  */
 data class Look(
     val skin: String = "light",
@@ -20,6 +21,8 @@ data class Look(
     val letter: Char? = null,
     val shirt: String? = null,
     val agent: String = "unknown",
+    val bottom: String = "pants",
+    val bottomColor: String = "navy",
 )
 
 /** A drawn person, [width] x [height] pixels of ARGB; 0 is transparent. */
@@ -33,10 +36,12 @@ class Sprite(val width: Int, val height: Int, val pixels: IntArray)
 class PixelPeople private constructor(
     private val palette: Map<Char, Int>,
     private val options: Map<String, Map<String, Int>>,
+    private val shades: Map<String, Map<String, Int>>,
     private val agentColors: Map<String, List<Int>>,
     private val face: Section,
     private val hairs: Map<String, Section>,
     private val accessoryDefs: Map<String, Section>,
+    private val bottomDefs: Map<String, Section>,
     private val parts: Map<String, Grid>,
     private val poseDefs: Map<String, Section>,
     private val signs: Map<String, Grid>,
@@ -48,6 +53,8 @@ class PixelPeople private constructor(
     val hairColors: List<String> get() = options["haircolor"].orEmpty().keys.toList()
     val accessories: List<String> get() = accessoryDefs.keys.toList()
     val shirts: List<String> get() = options["shirt"].orEmpty().keys.toList()
+    val bottoms: List<String> get() = bottomDefs.keys.toList()
+    val bottomColors: List<String> get() = options["bottomcolor"].orEmpty().keys.toList()
     val agents: List<String> get() = agentColors.keys.toList()
     val letters: Set<Char> get() = glyphs.keys
 
@@ -58,6 +65,14 @@ class PixelPeople private constructor(
         val skin = options["skin"]?.get(look.skin) ?: options.getValue("skin").values.first()
         val hairColor = options["haircolor"]?.get(look.hairColor) ?: options.getValue("haircolor").values.first()
         val shirt = look.shirt?.let { options["shirt"]?.get(it) }?.let(::listOf) ?: colorsOf(look.agent)
+        // Pants, shorts, a skirt or a dress: its grids stand in for the parts they're named
+        // after, in its colour (J j), or the shirt's for a dress.
+        val bottom = bottomDefs[look.bottom] ?: bottomDefs.values.firstOrNull()
+        val inShirt = bottom?.word("color") == "shirt"
+        val bottomColors = options["bottomcolor"].orEmpty()
+        val bottomKey = look.bottomColor.takeIf { it in bottomColors } ?: bottomColors.keys.firstOrNull()
+        val legs = bottomKey?.let(bottomColors::get) ?: palette.getValue('P')
+        val legsShade = bottomKey?.let { shades["bottomcolor"]?.get(it) } ?: if (bottomKey == null) palette.getValue('p') else shade(legs, 0.8)
         val colors = HashMap(palette).apply {
             put('S', skin)
             put('s', shade(skin, 0.85))
@@ -70,6 +85,8 @@ class PixelPeople private constructor(
         fun color(ch: Char, y: Int, extra: Map<Char, Int>): Int? = extra[ch] ?: when (ch) {
             'T' -> shirt[y % shirt.size]
             't' -> shade(shirt[y % shirt.size], 0.8)
+            'J' -> if (inShirt) shirt[y % shirt.size] else legs
+            'j' -> if (inShirt) shade(shirt[y % shirt.size], 0.8) else legsShade
             else -> colors[ch]
         }
 
@@ -94,7 +111,9 @@ class PixelPeople private constructor(
         }
         for (line in p.lines) {
             when (line.first()) {
-                "use" -> parts[line[1]]?.let { stamp(it.rows, line[2].toInt(), line[3].toInt()) }
+                "use" -> (bottom?.grids?.firstOrNull { it.label == line[1] } ?: parts[line[1]])?.let {
+                    stamp(it.rows, line[2].toInt() + it.x, line[3].toInt() + it.y)
+                }
                 "grid" -> p.gridsByLine[line]?.let { stamp(it.rows, it.x, it.y) }
                 "@head" -> if (head != null) {
                     val (hx, hy) = head
@@ -190,6 +209,8 @@ class PixelPeople private constructor(
         accessories: List<String>,
         letter: Char?,
         shirt: String? = null,
+        bottom: String? = null,
+        bottomColor: String? = null,
     ): Look =
         default.copy(
             skin = skin?.takeIf { it in skins } ?: default.skin,
@@ -198,6 +219,8 @@ class PixelPeople private constructor(
             accessories = accessories.filter { it in accessoryDefs }.distinct().take(MAX_ACCESSORIES),
             letter = letter?.uppercaseChar()?.takeIf { it in glyphs },
             shirt = shirt?.takeIf { it in shirts },
+            bottom = bottom?.takeIf { it in bottomDefs } ?: default.bottom,
+            bottomColor = bottomColor?.takeIf { it in bottomColors } ?: default.bottomColor,
         )
 
     private class Grid(val label: String, val x: Int, val y: Int, val rows: MutableList<String> = mutableListOf())
@@ -224,7 +247,7 @@ class PixelPeople private constructor(
         const val BAR_HEIGHT = 4
         private const val DARK = 60.0
 
-        private val KINDS = setOf("palette", "option", "agent", "face", "hair", "accessory", "part", "pose", "sign", "glyph")
+        private val KINDS = setOf("palette", "option", "agent", "face", "hair", "accessory", "bottom", "part", "pose", "sign", "glyph")
 
         // Agent names (as ACP adapters report them) to their colours; the first that matches wins.
         private val AGENT_NAMES = listOf(
@@ -282,9 +305,11 @@ class PixelPeople private constructor(
             }
             val palette = HashMap<Char, Int>()
             val options = LinkedHashMap<String, LinkedHashMap<String, Int>>()
+            val shades = HashMap<String, HashMap<String, Int>>()
             val agents = LinkedHashMap<String, List<Int>>()
             val hairs = LinkedHashMap<String, Section>()
             val accessories = LinkedHashMap<String, Section>()
+            val bottoms = LinkedHashMap<String, Section>()
             val parts = HashMap<String, Grid>()
             val poses = LinkedHashMap<String, Section>()
             val signs = HashMap<String, Grid>()
@@ -293,11 +318,16 @@ class PixelPeople private constructor(
             for (sec in sections) {
                 when (sec.kind) {
                     "palette" -> sec.lines.forEach { palette[it[0].single()] = it[1].toInt(16) }
-                    "option" -> sec.lines.forEach { options.getOrPut(sec.name, ::LinkedHashMap)[it[0]] = it[1].toInt(16) }
+                    "option" -> sec.lines.forEach {
+                        options.getOrPut(sec.name, ::LinkedHashMap)[it[0]] = it[1].toInt(16)
+                        // A colour may say its own shade, else it's worked out.
+                        it.getOrNull(2)?.let { shade -> shades.getOrPut(sec.name, ::HashMap)[it[0]] = shade.toInt(16) }
+                    }
                     "agent" -> agents[sec.name] = sec.args.map { it.toInt(16) }
                     "face" -> face = sec
                     "hair" -> hairs[sec.name] = sec
                     "accessory" -> accessories[sec.name] = sec
+                    "bottom" -> bottoms[sec.name] = sec
                     "part" -> parts[sec.name] = sec.grids.single()
                     "pose" -> poses[sec.name] = sec
                     "sign" -> signs[sec.name] = sec.grids.single()
@@ -305,7 +335,8 @@ class PixelPeople private constructor(
                 }
             }
             return PixelPeople(
-                palette, options, agents, face ?: error("no face in sprites.txt"), hairs, accessories, parts, poses, signs, glyphs,
+                palette, options, shades, agents, face ?: error("no face in sprites.txt"), hairs, accessories, bottoms, parts, poses,
+                signs, glyphs,
             )
         }
 
