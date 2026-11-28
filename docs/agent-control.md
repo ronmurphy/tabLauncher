@@ -27,6 +27,11 @@ file there and back with matching `sha256`, a second copy under the same name sa
 refused (`apk_not_allowed`). The folder tools are off until the user sets up the folder and switches on "Let the
 agent use the TabDeskAgent folder" in Customize → Agent.
 
+Tool list version 4 (`key` `minimise_all`, asked for by the user through DroidACP for a phrase that takes a picture)
+was built on 2026-11-27 and passed on the emulator with the test caller: `acting_off` with the switch off; two
+floating windows minimised; "Nothing to minimise" the second time, with nothing brought back; Show desktop
+bringing both back in order; and `paused` after a real touch on an allowed app.
+
 ```
 agent (Claude Code) ⇄ its host on the laptop ⇄ DroidACP on the tablet ⇄ TabDesk ⇄ TabDesk's helper
                        MCP                     MCP over ACP              Binder     (reads the screen, later taps)
@@ -51,6 +56,9 @@ DroidACP passes the MCP messages through without reading their contents. This do
     `acting_off`, so the host's fixed copy never has to change when the user flips the switch.
   - 3 (TabDesk 1.7.0, plan T13): adds the shared folder (`folder_list`, `folder_read`, `folder_write`), for
     the agent's host only, never shown to the agent. See [tool list 3](#tool-list-version-3-the-shared-folder).
+  - 4 (built 2026-11-27, at the user's ask through DroidACP): `key` gains `minimise_all`, which minimises every
+    window on screen, like the taskbar's Show desktop button, but never brings any back. See [`key`](#key). A
+    tablet with an older list answers it with `bad_arguments` ("key is back, home or enter.").
 
   The agent's host keeps a copy of the list for the version it supports, because the agent's tools are fixed when a
   chat starts. A tablet with an older version answers tools it doesn't have with a JSON-RPC error.
@@ -149,7 +157,7 @@ with a button. It changes nothing. It answers JSON:
 ```json
 {
   "interface": 1,
-  "tools": 3,
+  "tools": 4,
   "send_stream": true,
   "tabdesk": "1.7.0",
   "enabled": true,
@@ -823,16 +831,32 @@ screen again to see what happened: the answer says only that the action was done
 
 ```json
 { "name": "key", "title": "Press a key",
-  "description": "Presses Back or Enter in the allowed app in front, or Home. Home shows TabDesk's home screen, which the agent can't read: use open_app next.",
+  "description": "Presses Back or Enter in the allowed app in front, or Home. Home shows TabDesk's home screen, which the agent can't read: use open_app next. minimise_all minimises every window on screen, any app's, like the taskbar's Show desktop button, so nothing covers the app opened next; it needs no allowed app in front, and the user's Show desktop button brings the windows back.",
   "inputSchema": { "type": "object", "additionalProperties": false, "required": ["key"], "properties": {
-      "key": { "type": "string", "enum": ["back", "home", "enter"], "description": "The key." } } },
+      "key": { "type": "string", "enum": ["back", "home", "enter", "minimise_all"], "description": "The key." } } },
   "annotations": { "readOnlyHint": false, "destructiveHint": true, "idempotentHint": false } }
 ```
 
 - `back` and `enter` go to the window with the focus, which must be the app's (`focus`). With the keyboard up,
   Back closes it, as it does for a person.
 - `home` works wherever the focus is, and answers "Pressed Home: TabDesk's home screen is in front now, which the
-  agent can't read. Open an allowed app with open_app."
+  agent can't read. Open an allowed app with open_app." On some tablets (the TB305FU) floating windows stay on
+  screen over the home screen.
+- `minimise_all` (tool list 4) minimises every window on screen, as the taskbar's Show desktop button does, for
+  when other windows cover the app the agent is about to use (a phrase that takes a picture with Camera, say).
+  - It only ever minimises. The button is a toggle, and pressed with nothing on screen it brings the windows back;
+    `minimise_all` then answers "Nothing to minimise: no windows were on screen.", so a phrase can't reopen the
+    user's windows.
+  - The windows are remembered as the button remembers them, so the user's next press of Show desktop brings them
+    back, in their order.
+  - It acts in no app and reads nothing, so unlike the other keys it needs no allowed app in front, and it
+    minimises any app's windows, the agent's own host's included. Like every action, it needs "Let the agent tap
+    and type" (`acting_off`), the screen on and unlocked, and the helper, and Stop or a touch refuses it.
+    TabDesk's own windows (Files, Tasks) stay, as with the button.
+  - It answers "Minimised 2 windows. TabDesk's home screen is in front now, which the agent can't read: open an
+    allowed app with open_app. The user's Show desktop button on the taskbar brings the windows back." It answers
+    once the helper has minimised them, plus 0.3 s for the last to finish moving.
+  - The log names no app in front for it.
 
 ### `wait_for`
 

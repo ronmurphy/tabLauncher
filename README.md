@@ -407,7 +407,9 @@ is kept outside the repo.
   battery, and each running app's share, as TabDesk Tasks shows them). An app you haven't allowed shows
   as "blocked app" unless you switch on "Let the agent see which apps are running".
 - **Tapping and typing** (from 1.6.0), only once you switch on "Let the agent tap and type": in the apps you've allowed, the agent can tap (or long-press) a button or a point, type
-  into a field, swipe, scroll, press Back, Enter or Home, and wait for something to show up. Each action
+  into a field, swipe, scroll, press Back, Enter or Home, and wait for something to show up. It can
+  also minimise every window on screen, as the taskbar's Show desktop button does (but never bring them
+  back), so nothing covers the app it opens next; Show desktop brings them back for you. Each action
   checks again, just before it happens, that the allowed app is still in front and that the spot isn't
   under another window (DroidACP's chat, a notification, the keyboard), and never types into a password
   field. Text goes straight into the field, not through the keyboard, so the keyboard never learns it.

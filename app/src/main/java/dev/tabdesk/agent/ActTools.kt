@@ -1,6 +1,7 @@
 package dev.tabdesk.agent
 
 import android.content.Context
+import dev.tabdesk.Windows
 import dev.tabdesk.helper.HelperClient
 import org.json.JSONArray
 import org.json.JSONObject
@@ -22,10 +23,12 @@ internal object ActTools {
 
     /** The checks every action starts with: the switch, the screen, an allowed app in front. */
     private fun start(ctx: Context): Pair<HelperClient.Task?, Pair<JSONObject, String?>> {
-        if (!Agent.acting) return null to (Tools.refused("acting_off", "Tapping and typing is switched off on the tablet " +
-            "(TabDesk → Customize → Agent → “Let the agent tap and type”). The agent can still read the screen.") to null)
+        if (!Agent.acting) return null to (actingOff() to null)
         return ScreenTools.readable(ctx)
     }
+
+    private fun actingOff() = Tools.refused("acting_off", "Tapping and typing is switched off on the tablet " +
+        "(TabDesk → Customize → Agent → “Let the agent tap and type”). The agent can still read the screen.")
 
     private fun boolArg(args: JSONObject, key: String): Boolean? = when (val v = args.opt(key)) {
         null -> false
@@ -158,7 +161,8 @@ internal object ActTools {
 
     fun key(ctx: Context, args: JSONObject, deadline: Long): Pair<JSONObject, String?> {
         val key = args.opt("key") as? String
-        if (key !in setOf("back", "home", "enter")) return bad("key is back, home or enter.")
+        if (key !in setOf("back", "home", "enter", "minimise_all")) return bad("key is back, home, enter or minimise_all.")
+        if (key == "minimise_all") return minimiseAll(ctx, deadline) to null
         val (task, refusal) = start(ctx)
         if (task == null) return refusal
         val name = Agent.label(task.top)
@@ -168,6 +172,31 @@ internal object ActTools {
         if (key == "home") return Tools.ok(Tools.text("Pressed Home: TabDesk's home screen is in front now, which the agent " +
             "can't read. Open an allowed app with open_app.")) to name
         return done(ctx, task, "Pressed ${key!!.replaceFirstChar { it.uppercase() }}.") to name
+    }
+
+    /**
+     * `key` "minimise_all" (tool list 4): every window on screen minimised, as the taskbar's Show desktop does, but
+     * never brought back. It doesn't act in any app, so unlike the other keys it needs no allowed app in front; like
+     * every action it needs "Let the agent tap and type", and the screen on and unlocked. The windows are remembered
+     * as Show desktop remembers them, so the user's next press of it brings them back.
+     */
+    private fun minimiseAll(ctx: Context, deadline: Long): JSONObject {
+        if (!Agent.acting) return actingOff()
+        ScreenTools.screenRefusal(ctx)?.let { return it }
+        val done = java.util.concurrent.CountDownLatch(1)
+        val count = java.util.concurrent.atomic.AtomicInteger(-1)
+        android.os.Handler(android.os.Looper.getMainLooper()).post { count.set(Windows.minimiseAll()); done.countDown() }
+        val wait = (deadline - System.currentTimeMillis() - 800).coerceAtLeast(100)
+        if (!done.await(wait, java.util.concurrent.TimeUnit.MILLISECONDS)) return ScreenTools.noAnswer()
+        val n = count.get()
+        if (n == 0) return Tools.ok(Tools.text("Nothing to minimise: no windows were on screen."))
+        // The helper minimises them in order; a moment more lets the last one finish moving, so the agent's next
+        // tap doesn't find a window still on its way.
+        HelperClient.sent(500)
+        Thread.sleep(300)
+        return Tools.ok(Tools.text("Minimised ${if (n == 1) "1 window" else "$n windows"}. TabDesk's home screen is " +
+            "in front now, which the agent can't read: open an allowed app with open_app. The user's Show desktop " +
+            "button on the taskbar brings the windows back."))
     }
 
     /** Waits until an item matching the locator is on screen (or, with gone, isn't), reading every 0.4 s. */

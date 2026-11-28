@@ -146,8 +146,10 @@ internal object Tools {
         Tool("key", 3000, JSONObject()
             .put("name", "key").put("title", "Press a key")
             .put("description", "Presses Back or Enter in the allowed app in front, or Home. Home shows TabDesk's home " +
-                "screen, which the agent can't read: use open_app next.")
-            .put("inputSchema", schema(props("key" to enum("The key.", "back", "home", "enter")), "key"))
+                "screen, which the agent can't read: use open_app next. minimise_all minimises every window on " +
+                "screen, any app's, like the taskbar's Show desktop button, so nothing covers the app opened next; " +
+                "it needs no allowed app in front, and the user's Show desktop button brings the windows back.")
+            .put("inputSchema", schema(props("key" to enum("The key.", "back", "home", "enter", "minimise_all")), "key"))
             .put("annotations", acting), checksFront = true),
         Tool("wait_for", 2000, JSONObject()
             .put("name", "wait_for").put("title", "Wait for an item")

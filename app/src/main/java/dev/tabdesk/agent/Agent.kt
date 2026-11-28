@@ -34,7 +34,7 @@ object Agent {
      * announced in status() instead (send_stream).
      */
     const val INTERFACE = 1
-    const val TOOLS = 3
+    const val TOOLS = 4
     const val ACTION_SETTINGS = "dev.tabdesk.action.AGENT_SETTINGS"
     const val LAPSE_MS = 7L * 24 * 60 * 60 * 1000
     private const val WARN_BEFORE_MS = 24L * 60 * 60 * 1000

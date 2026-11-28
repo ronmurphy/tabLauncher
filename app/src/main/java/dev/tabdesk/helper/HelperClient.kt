@@ -120,6 +120,11 @@ internal object HelperClient {
         exec.execute { send("min $taskId") }
     }
 
+    /** Waits (at most [ms]) until the commands asked for so far have gone to the helper. False if they haven't yet. */
+    fun sent(ms: Long): Boolean = try {
+        exec.submit {}.get(ms, java.util.concurrent.TimeUnit.MILLISECONDS); true
+    } catch (e: Exception) { false }
+
     /** Brings a task's window to the front as it was, e.g. after [minimise]. */
     fun front(taskId: Int) {
         expect(taskId, visible = true)

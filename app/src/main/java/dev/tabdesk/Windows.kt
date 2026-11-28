@@ -88,15 +88,24 @@ internal object Windows {
 
     /** Minimises every window on screen; pressed again (nothing on screen), brings them back. */
     fun showDesktop(act: HomeActivity) {
-        val shown = open().filter { it.visible }.reversed()
-        if (shown.isNotEmpty()) {
-            cleared = shown.map { it.id }
-            shown.forEach { HelperClient.minimise(it.id) }
-            return
-        }
+        if (minimiseAll() > 0) return
         val back = cleared.filter { id -> open().any { it.id == id } }
         cleared = emptyList()
         if (back.isEmpty()) act.toast("No windows to bring back") else back.forEach { HelperClient.front(it) }
+    }
+
+    /**
+     * Show desktop's first half: minimises every window on screen and remembers them, so the next press of Show
+     * desktop brings them back. Also an agent's `key` "minimise_all", which never brings any back, so a phrase can't
+     * reopen the user's windows. TabDesk's own windows stay, as they always have with Show desktop. On the main
+     * thread. Answers how many it minimised.
+     */
+    fun minimiseAll(): Int {
+        val shown = open().filter { it.visible }.reversed()
+        if (shown.isEmpty()) return 0
+        cleared = shown.map { it.id }
+        shown.forEach { HelperClient.minimise(it.id) }
+        return shown.size
     }
 
     // ------------------------------------------------------------ snapping
