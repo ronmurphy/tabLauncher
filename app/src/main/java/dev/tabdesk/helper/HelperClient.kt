@@ -87,6 +87,8 @@ internal object HelperClient {
      */
     fun ensure(ctx: Context) {
         app = ctx.applicationContext
+        // When the user switches wireless debugging back on after the helper couldn't start, try again now.
+        Adb.watch(app) { if (!connected && problem != null) ensure(app) }
         queue(start = true)
     }
 

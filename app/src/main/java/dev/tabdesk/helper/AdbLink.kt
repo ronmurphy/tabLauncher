@@ -172,6 +172,11 @@ internal const val ADB_PAIRING = "_adb-tls-pairing._tcp"
  * Finds this tablet's wireless-debugging port, which changes each time wireless debugging is switched on, from
  * the service it advertises on Wi-Fi. Null if it isn't on (or there's no Wi-Fi). Blocks: call off the main thread.
  */
+/** Whether something listens at [port] on this tablet, where wireless debugging does. */
+private fun answers(port: Int) = try {
+    Socket().use { it.connect(InetSocketAddress("127.0.0.1", port), 500) }; true
+} catch (_: Exception) { false }
+
 internal fun findAdbPort(ctx: Context, service: String = ADB_CONNECT, timeoutMs: Long = 6000, log: (String) -> Unit = {}): Int? {
     val nsd = ctx.getSystemService(NsdManager::class.java) ?: return null
     val mine = (NetworkInterface.getNetworkInterfaces()?.toList() ?: emptyList())
@@ -188,7 +193,10 @@ internal fun findAdbPort(ctx: Context, service: String = ADB_CONNECT, timeoutMs:
                         .mapNotNull { it.hostAddress?.substringBefore('%') }
                     val ours = hosts.any { it in mine }
                     log("found ${r.serviceName} at $hosts:${r.port}${if (ours) " (this tablet)" else ""}")
-                    if (ours) { port = r.port; done.countDown() }
+                    // Just after wireless debugging is switched off and on, its old announcement can still be listed
+                    // beside the new one: only a port that answers is the real one.
+                    if (ours && answers(r.port)) { port = r.port; done.countDown() }
+                    else if (ours) log("port ${r.port} doesn't answer: an old announcement")
                 }
                 override fun onResolveFailed(r: NsdServiceInfo, error: Int) { log("couldn't resolve ${r.serviceName}: $error") }
             })
